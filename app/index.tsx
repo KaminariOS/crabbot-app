@@ -9,10 +9,19 @@ import { getChatGptPalette } from '@/src/ui/chatgpt';
 
 export default function ConnectionsScreen() {
   const router = useRouter();
-  const { state, connectConnection, disconnectConnection, removeConnection, resumeLatestSession } = useAppState();
+  const {
+    state,
+    connectConnection,
+    disconnectConnection,
+    removeConnection,
+    resumeLatestSession,
+    resumeSession,
+    setActiveSession,
+  } = useAppState();
   const { resolvedTheme } = useThemeSettings();
   const palette = getChatGptPalette(resolvedTheme);
   const [menuConnectionId, setMenuConnectionId] = React.useState<string | null>(null);
+  const [expandedConnectionIds, setExpandedConnectionIds] = React.useState<Record<string, boolean>>({});
   const menuConnection = menuConnectionId ? state.connections.find((connection) => connection.id === menuConnectionId) ?? null : null;
 
   return (
@@ -22,74 +31,131 @@ export default function ConnectionsScreen() {
           {state.connections.length === 0 ? (
             <Paragraph style={{ color: palette.mutedText }}>No terminals yet. Add one by QR scan or manual URL input.</Paragraph>
           ) : (
-            state.connections.map((connection) => (
-              <Pressable key={connection.id} onPress={() => router.push(`/connection/${connection.id}` as never)}>
-                <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
-                  <Card.Header style={{ gap: 4 }}>
-                    <XStack style={{ alignItems: 'center', gap: 12 }}>
-                      <View
-                        style={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: 20,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          backgroundColor: palette.surfaceAlt,
-                          borderWidth: 1,
-                          borderColor: palette.border,
-                        }}
-                      >
-                        <Text fontWeight="700" style={{ color: palette.text }}>
-                          {initials(connection.name)}
-                        </Text>
-                      </View>
-                      <YStack style={{ flex: 1, gap: 2 }}>
-                        <Text fontWeight="700" style={{ color: palette.text }}>
-                          {connection.name}
-                        </Text>
-                        <Paragraph size="$2" style={{ color: palette.mutedText }}>
-                          {safeHost(connection.websocketUrl) ?? connection.websocketUrl}
-                        </Paragraph>
-                        <XStack style={{ alignItems: 'center', gap: 6 }}>
+            state.connections.map((connection) => {
+              const isExpanded = Boolean(expandedConnectionIds[connection.id]);
+              const sessions = state.sessions
+                .filter((session) => session.connectionId === connection.id)
+                .sort((a, b) => b.updatedAt - a.updatedAt);
+
+              return (
+                <YStack key={connection.id} style={{ gap: 8 }}>
+                  <Pressable
+                    onPress={() => {
+                      setExpandedConnectionIds((current) => ({
+                        ...current,
+                        [connection.id]: !current[connection.id],
+                      }));
+                    }}
+                  >
+                    <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
+                      <Card.Header style={{ gap: 4 }}>
+                        <XStack style={{ alignItems: 'center', gap: 12 }}>
                           <View
                             style={{
-                              width: 8,
-                              height: 8,
-                              borderRadius: 4,
-                              backgroundColor: statusColor(connection.status),
+                              width: 40,
+                              height: 40,
+                              borderRadius: 20,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: palette.surfaceAlt,
+                              borderWidth: 1,
+                              borderColor: palette.border,
                             }}
-                          />
-                          <Paragraph size="$2" style={{ color: palette.mutedText }}>
-                            {statusLabel(connection.status)} • {sessionCountLabel(state.sessions, connection.id)}
-                          </Paragraph>
+                          >
+                            <Text fontWeight="700" style={{ color: palette.text }}>
+                              {initials(connection.name)}
+                            </Text>
+                          </View>
+                          <YStack style={{ flex: 1, gap: 2 }}>
+                            <Text fontWeight="700" style={{ color: palette.text }}>
+                              {connection.name}
+                            </Text>
+                            <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                              {safeHost(connection.websocketUrl) ?? connection.websocketUrl}
+                            </Paragraph>
+                            <XStack style={{ alignItems: 'center', gap: 6 }}>
+                              <View
+                                style={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: 4,
+                                  backgroundColor: statusColor(connection.status),
+                                }}
+                              />
+                              <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                                {statusLabel(connection.status)} • {sessionCountLabel(state.sessions, connection.id)}
+                              </Paragraph>
+                            </XStack>
+                          </YStack>
+                          <Button
+                            accessibilityLabel={`Actions for ${connection.name}`}
+                            onPress={(event) => {
+                              event.stopPropagation();
+                              setMenuConnectionId(connection.id);
+                            }}
+                            style={{
+                              minWidth: 40,
+                              height: 40,
+                              borderWidth: 1,
+                              borderColor: palette.border,
+                              backgroundColor: palette.surfaceAlt,
+                              color: palette.text,
+                              paddingHorizontal: 0,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Text style={{ color: palette.text, fontSize: 26, lineHeight: 26 }}>⋮</Text>
+                          </Button>
                         </XStack>
-                      </YStack>
-                      <Button
-                        accessibilityLabel={`Actions for ${connection.name}`}
-                        onPress={(event) => {
-                          event.stopPropagation();
-                          setMenuConnectionId(connection.id);
-                        }}
-                        style={{
-                          minWidth: 40,
-                          height: 40,
-                          borderWidth: 1,
-                          borderColor: palette.border,
-                          backgroundColor: palette.surfaceAlt,
-                          color: palette.text,
-                          paddingHorizontal: 0,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Text style={{ color: palette.text, fontSize: 26, lineHeight: 26 }}>⋮</Text>
-                      </Button>
-                    </XStack>
-                    {connection.errorMessage ? <Paragraph style={{ color: palette.danger }}>{connection.errorMessage}</Paragraph> : null}
-                  </Card.Header>
-                </Card>
-              </Pressable>
-            ))
+                        {connection.errorMessage ? <Paragraph style={{ color: palette.danger }}>{connection.errorMessage}</Paragraph> : null}
+                      </Card.Header>
+                    </Card>
+                  </Pressable>
+
+                  {isExpanded ? (
+                    <YStack style={{ gap: 8, paddingLeft: 10 }}>
+                      {sessions.length === 0 ? (
+                        <Paragraph size="$2" style={{ color: palette.mutedText, paddingHorizontal: 8 }}>
+                          No sessions yet.
+                        </Paragraph>
+                      ) : (
+                        sessions.map((session) => (
+                          <Pressable
+                            key={session.id}
+                            onPress={() => {
+                              void (async () => {
+                                try {
+                                  await resumeSession(session.id);
+                                  setActiveSession(session.id);
+                                  router.push(`/session/${session.id}` as never);
+                                } catch (error) {
+                                  Alert.alert('Resume failed', error instanceof Error ? error.message : 'Unknown resume error');
+                                }
+                              })();
+                            }}
+                          >
+                            <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
+                              <Card.Header style={{ gap: 3 }}>
+                                <Text fontWeight="700" style={{ color: palette.text }}>
+                                  {session.title}
+                                </Text>
+                                <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                                  threadId: {session.threadId}
+                                </Paragraph>
+                                <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                                  state: {session.state}
+                                </Paragraph>
+                              </Card.Header>
+                            </Card>
+                          </Pressable>
+                        ))
+                      )}
+                    </YStack>
+                  ) : null}
+                </YStack>
+              );
+            })
           )}
         </YStack>
       </ScrollView>
