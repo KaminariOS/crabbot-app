@@ -25,7 +25,6 @@ export default function ConnectionDetailScreen() {
   } = useAppState();
   const { resolvedTheme } = useThemeSettings();
   const palette = getChatGptPalette(resolvedTheme);
-  const sessionActionStyle = { width: '31%' as const, minWidth: 0 };
 
   const connection = state.connections.find((item) => item.id === connectionId);
   const sessions = state.sessions
@@ -175,53 +174,58 @@ export default function ConnectionDetailScreen() {
                 </Paragraph>
               </Card.Header>
               <Card.Footer>
-                <XStack style={{ gap: 8, flexWrap: 'wrap' }}>
+                <YStack style={{ gap: 8, width: '100%' }}>
+                  <XStack style={{ gap: 8 }}>
+                    <Button
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        borderWidth: 1,
+                        borderColor: palette.border,
+                        backgroundColor: palette.surfaceAlt,
+                        color: palette.text,
+                        paddingHorizontal: 8,
+                      }}
+                      onPress={() => {
+                        setActiveSession(session.id);
+                        router.push(`/session/${session.id}` as never);
+                      }}
+                    >
+                      Open
+                    </Button>
+                    <Button
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        borderWidth: 1,
+                        borderColor: palette.border,
+                        backgroundColor: palette.surfaceAlt,
+                        color: palette.text,
+                        paddingHorizontal: 8,
+                      }}
+                      onPress={async () => {
+                        try {
+                          await resumeSession(session.id);
+                        } catch (error) {
+                          Alert.alert(
+                            'Resume failed',
+                            error instanceof Error ? error.message : 'Unknown resume error',
+                          );
+                        }
+                      }}
+                    >
+                      Resume
+                    </Button>
+                  </XStack>
                   <Button
                     style={{
+                      width: '100%',
+                      minWidth: 0,
                       borderWidth: 1,
                       borderColor: palette.border,
                       backgroundColor: palette.surfaceAlt,
                       color: palette.text,
                       paddingHorizontal: 8,
-                      ...sessionActionStyle,
-                    }}
-                    onPress={() => {
-                      setActiveSession(session.id);
-                      router.push(`/session/${session.id}` as never);
-                    }}
-                  >
-                    Open
-                  </Button>
-                  <Button
-                    style={{
-                      borderWidth: 1,
-                      borderColor: palette.border,
-                      backgroundColor: palette.surfaceAlt,
-                      color: palette.text,
-                      paddingHorizontal: 8,
-                      ...sessionActionStyle,
-                    }}
-                    onPress={async () => {
-                      try {
-                        await resumeSession(session.id);
-                      } catch (error) {
-                        Alert.alert(
-                          'Resume failed',
-                          error instanceof Error ? error.message : 'Unknown resume error',
-                        );
-                      }
-                    }}
-                  >
-                    Resume
-                  </Button>
-                  <Button
-                    style={{
-                      borderWidth: 1,
-                      borderColor: palette.border,
-                      backgroundColor: palette.surfaceAlt,
-                      color: palette.text,
-                      paddingHorizontal: 8,
-                      ...sessionActionStyle,
                     }}
                     onPress={async () => {
                       try {
@@ -239,7 +243,7 @@ export default function ConnectionDetailScreen() {
                   >
                     Fork
                   </Button>
-                </XStack>
+                </YStack>
               </Card.Footer>
             </Card>
           ))

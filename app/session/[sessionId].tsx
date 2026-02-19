@@ -59,34 +59,57 @@ export default function SessionScreen() {
         <Paragraph size="$2" style={{ color: runtime.turnId ? palette.accent : palette.mutedText }}>
           {runtime.turnId ? 'Thinking...' : 'Idle'}
         </Paragraph>
-        <XStack style={{ gap: 8, flexWrap: 'wrap' }}>
+        <YStack style={{ gap: 8 }}>
+          <XStack style={{ gap: 8 }}>
+            <Button
+              style={{
+                flex: 1,
+                minWidth: 0,
+                borderWidth: 1,
+                borderColor: palette.border,
+                backgroundColor: palette.surfaceAlt,
+                color: palette.text,
+              }}
+              onPress={async () => {
+                try {
+                  await resumeSession(session.id);
+                } catch (error) {
+                  Alert.alert('Resume failed', error instanceof Error ? error.message : 'Unknown resume error');
+                }
+              }}
+            >
+              Resume
+            </Button>
+            <Button
+              style={{
+                flex: 1,
+                minWidth: 0,
+                borderWidth: 1,
+                borderColor: palette.border,
+                backgroundColor: palette.surfaceAlt,
+                color: palette.text,
+              }}
+              onPress={async () => {
+                try {
+                  await interruptSession(session.id);
+                } catch (error) {
+                  Alert.alert('Interrupt failed', error instanceof Error ? error.message : 'Unknown interrupt error');
+                }
+              }}
+              disabled={!runtime.turnId}
+            >
+              Interrupt
+            </Button>
+          </XStack>
           <Button
-            style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
-            onPress={async () => {
-              try {
-                await resumeSession(session.id);
-              } catch (error) {
-                Alert.alert('Resume failed', error instanceof Error ? error.message : 'Unknown resume error');
-              }
+            style={{
+              width: '100%',
+              minWidth: 0,
+              borderWidth: 1,
+              borderColor: palette.border,
+              backgroundColor: palette.surfaceAlt,
+              color: palette.text,
             }}
-          >
-            Resume
-          </Button>
-          <Button
-            style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
-            onPress={async () => {
-              try {
-                await interruptSession(session.id);
-              } catch (error) {
-                Alert.alert('Interrupt failed', error instanceof Error ? error.message : 'Unknown interrupt error');
-              }
-            }}
-            disabled={!runtime.turnId}
-          >
-            Interrupt
-          </Button>
-          <Button
-            style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
             onPress={async () => {
               try {
                 await forkSession(session.id);
@@ -97,7 +120,7 @@ export default function SessionScreen() {
           >
             Fork
           </Button>
-        </XStack>
+        </YStack>
       </YStack>
 
       <FlatList
