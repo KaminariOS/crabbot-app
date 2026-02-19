@@ -3,43 +3,74 @@ import React from 'react';
 import { Button, Card, Paragraph, ScrollView, Text, XStack, YStack } from 'tamagui';
 
 import { useAppState } from '@/src/state/AppContext';
+import { useThemeSettings } from '@/src/state/ThemeContext';
+import { getChatGptPalette } from '@/src/ui/chatgpt';
 
 export default function ConnectionsScreen() {
   const { state, connectConnection, disconnectConnection, removeConnection } = useAppState();
+  const { resolvedTheme } = useThemeSettings();
+  const palette = getChatGptPalette(resolvedTheme);
 
   return (
     <YStack flex={1}>
       <ScrollView>
         <YStack style={{ padding: 16, gap: 12, paddingBottom: 96 }}>
           <Link href={'/settings' as never} asChild>
-            <Button>Settings</Button>
+            <Button
+              style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
+            >
+              Settings
+            </Button>
           </Link>
 
           {state.connections.length === 0 ? (
-            <Paragraph color="$gray10">No connections yet. Add one by QR scan or manual URL input.</Paragraph>
+            <Paragraph style={{ color: palette.mutedText }}>No connections yet. Add one by QR scan or manual URL input.</Paragraph>
           ) : (
             state.connections.map((connection) => (
-              <Card key={connection.id} style={{ borderWidth: 1, borderColor: '#d1d5db' }}>
+              <Card key={connection.id} style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
                 <Card.Header style={{ gap: 4 }}>
-                  <Text fontWeight="700">{connection.name}</Text>
-                  <Paragraph size="$2">{connection.websocketUrl}</Paragraph>
-                  <Paragraph size="$2">Status: {connection.status}</Paragraph>
-                  {connection.errorMessage ? <Paragraph color="$red10">{connection.errorMessage}</Paragraph> : null}
+                  <Text fontWeight="700" style={{ color: palette.text }}>
+                    {connection.name}
+                  </Text>
+                  <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                    {connection.websocketUrl}
+                  </Paragraph>
+                  <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                    Status: {connection.status}
+                  </Paragraph>
+                  {connection.errorMessage ? <Paragraph style={{ color: palette.danger }}>{connection.errorMessage}</Paragraph> : null}
                 </Card.Header>
                 <Card.Footer>
                   <XStack style={{ gap: 8, flexWrap: 'wrap' }}>
-                  <Link href={`/connection/${connection.id}` as never} asChild>
-                    <Button>Open</Button>
-                  </Link>
-                  <Link href={`/connection/edit/${connection.id}` as never} asChild>
-                    <Button>Edit</Button>
-                  </Link>
-                  {connection.status === 'connected' || connection.status === 'connecting' ? (
-                    <Button onPress={() => disconnectConnection(connection.id)}>Disconnect</Button>
-                  ) : (
-                      <Button onPress={() => void connectConnection(connection.id)}>Connect</Button>
+                    <Link href={`/connection/${connection.id}` as never} asChild>
+                      <Button style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}>
+                        Open
+                      </Button>
+                    </Link>
+                    <Link href={`/connection/edit/${connection.id}` as never} asChild>
+                      <Button style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}>
+                        Edit
+                      </Button>
+                    </Link>
+                    {connection.status === 'connected' || connection.status === 'connecting' ? (
+                      <Button
+                        onPress={() => disconnectConnection(connection.id)}
+                        style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
+                      >
+                        Disconnect
+                      </Button>
+                    ) : (
+                      <Button
+                        onPress={() => void connectConnection(connection.id)}
+                        style={{ backgroundColor: palette.accent, color: '#ffffff' }}
+                      >
+                        Connect
+                      </Button>
                     )}
-                    <Button theme="red" onPress={() => removeConnection(connection.id)}>
+                    <Button
+                      style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
+                      onPress={() => removeConnection(connection.id)}
+                    >
                       Delete
                     </Button>
                   </XStack>
@@ -54,8 +85,8 @@ export default function ConnectionsScreen() {
         <Button
           circular
           size="$8"
-          backgroundColor="#0b5fff"
-          borderColor="#0845bb"
+          backgroundColor={palette.accent}
+          borderColor={palette.accent}
           borderWidth={1}
           style={{
             position: 'absolute',
@@ -65,8 +96,8 @@ export default function ConnectionsScreen() {
             elevation: 8,
             width: 76,
             height: 76,
-            shadowColor: '#0b5fff',
-            shadowOpacity: 0.35,
+            shadowColor: '#000000',
+            shadowOpacity: 0.25,
             shadowRadius: 10,
             shadowOffset: { width: 0, height: 4 },
           }}

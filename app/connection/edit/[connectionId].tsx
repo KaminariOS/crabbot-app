@@ -2,9 +2,11 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
-import { Button, Input, Paragraph, Text, YStack } from 'tamagui';
+import { Button, Card, Input, Paragraph, Text, YStack } from 'tamagui';
 
 import { useAppState } from '@/src/state/AppContext';
+import { useThemeSettings } from '@/src/state/ThemeContext';
+import { getChatGptPalette } from '@/src/ui/chatgpt';
 
 export default function EditConnectionScreen() {
   const params = useLocalSearchParams<{ connectionId: string }>();
@@ -18,13 +20,17 @@ export default function EditConnectionScreen() {
   const [url, setUrl] = useState(connection?.websocketUrl ?? '');
   const [showScanner, setShowScanner] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
+  const { resolvedTheme } = useThemeSettings();
+  const palette = getChatGptPalette(resolvedTheme);
 
   const normalizedUrl = useMemo(() => normalizeWsUrl(url), [url]);
 
   if (!connection) {
     return (
       <YStack style={{ flex: 1, padding: 16, gap: 12 }}>
-        <Text fontWeight="700">Connection not found</Text>
+        <Text fontWeight="700" style={{ color: palette.text }}>
+          Connection not found
+        </Text>
       </YStack>
     );
   }
@@ -59,7 +65,9 @@ export default function EditConnectionScreen() {
   if (showScanner) {
     return (
       <YStack style={{ flex: 1, padding: 16, gap: 12 }}>
-        <Text fontWeight="700">Scan Connection QR</Text>
+        <Text fontWeight="700" style={{ color: palette.text }}>
+          Scan Connection QR
+        </Text>
         <View style={styles.scannerWrap}>
           <CameraView
             style={styles.scanner}
@@ -73,32 +81,59 @@ export default function EditConnectionScreen() {
             }}
           />
         </View>
-        <Button onPress={() => setShowScanner(false)}>Close Scanner</Button>
+        <Button
+          onPress={() => setShowScanner(false)}
+          style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
+        >
+          Close Scanner
+        </Button>
       </YStack>
     );
   }
 
   return (
-    <YStack style={{ flex: 1, padding: 16, gap: 12 }}>
-      <Text fontWeight="700">Connection Name</Text>
-      <Input value={name} onChangeText={setName} placeholder="Office daemon" />
+    <YStack style={{ flex: 1, padding: 16 }}>
+      <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
+        <Card.Header style={{ gap: 10 }}>
+          <Text fontWeight="700" style={{ color: palette.text }}>
+            Connection Name
+          </Text>
+          <Input
+            value={name}
+            onChangeText={setName}
+            placeholder="Office daemon"
+            style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
+          />
 
-      <Text fontWeight="700">WebSocket URL</Text>
-      <Input
-        value={url}
-        onChangeText={setUrl}
-        autoCapitalize="none"
-        autoCorrect={false}
-        placeholder="wss://host.example/rpc"
-      />
-      <Paragraph size="$2" color="$gray10">
-        {normalizedUrl ? `Normalized: ${normalizedUrl}` : 'Provide ws:// or wss:// URL'}
-      </Paragraph>
-
-      <Button onPress={() => void openScanner()}>Scan QR</Button>
-      <Button theme="blue" onPress={onSave}>
-        Save Changes
-      </Button>
+          <Text fontWeight="700" style={{ color: palette.text }}>
+            WebSocket URL
+          </Text>
+          <Input
+            value={url}
+            onChangeText={setUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="wss://host.example/rpc"
+            style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
+          />
+          <Paragraph size="$2" style={{ color: palette.mutedText }}>
+            {normalizedUrl ? `Normalized: ${normalizedUrl}` : 'Provide ws:// or wss:// URL'}
+          </Paragraph>
+        </Card.Header>
+        <Card.Footer>
+          <YStack style={{ gap: 8, width: '100%' }}>
+            <Button
+              onPress={() => void openScanner()}
+              style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
+            >
+              Scan QR
+            </Button>
+            <Button style={{ backgroundColor: palette.accent, color: '#ffffff' }} onPress={onSave}>
+              Save Changes
+            </Button>
+          </YStack>
+        </Card.Footer>
+      </Card>
     </YStack>
   );
 }
