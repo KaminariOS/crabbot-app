@@ -5,12 +5,16 @@ import { Button, Card, Input, Paragraph, ScrollView, Text, XStack, YStack } from
 
 import type { TranscriptCell } from '@/src/domain/types';
 import { useAppState } from '@/src/state/AppContext';
+import { useThemeSettings } from '@/src/state/ThemeContext';
+import { getChatGptPalette, type ChatGptPalette } from '@/src/ui/chatgpt';
 
 export default function SessionScreen() {
   const params = useLocalSearchParams<{ sessionId: string }>();
   const sessionId = String(params.sessionId ?? '');
 
   const { state, setActiveSession, sendMessage, interruptSession, resumeSession, forkSession, respondApproval } = useAppState();
+  const { resolvedTheme } = useThemeSettings();
+  const palette = getChatGptPalette(resolvedTheme);
   const [text, setText] = useState('');
 
   const session = state.sessions.find((item) => item.id === sessionId);
@@ -25,7 +29,9 @@ export default function SessionScreen() {
   if (!session) {
     return (
       <YStack style={{ flex: 1, padding: 16 }}>
-        <Text fontWeight="700">Session not found</Text>
+        <Text fontWeight="700" style={{ color: palette.text }}>
+          Session not found
+        </Text>
       </YStack>
     );
   }
@@ -33,10 +39,15 @@ export default function SessionScreen() {
   return (
     <YStack style={{ flex: 1 }}>
       <YStack style={{ padding: 16, gap: 8 }}>
-        <Text fontWeight="700">{session.title}</Text>
-        <Paragraph size="$2">threadId: {session.threadId}</Paragraph>
+        <Text fontWeight="700" style={{ color: palette.text }}>
+          {session.title}
+        </Text>
+        <Paragraph size="$2" style={{ color: palette.mutedText }}>
+          threadId: {session.threadId}
+        </Paragraph>
         <XStack style={{ gap: 8, flexWrap: 'wrap' }}>
           <Button
+            style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
             onPress={async () => {
               try {
                 await resumeSession(session.id);
@@ -48,6 +59,7 @@ export default function SessionScreen() {
             Resume
           </Button>
           <Button
+            style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
             onPress={async () => {
               try {
                 await interruptSession(session.id);
@@ -60,6 +72,7 @@ export default function SessionScreen() {
             Interrupt
           </Button>
           <Button
+            style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
             onPress={async () => {
               try {
                 await forkSession(session.id);
@@ -76,14 +89,16 @@ export default function SessionScreen() {
       <ScrollView>
         <YStack style={{ padding: 16, gap: 8, paddingBottom: 48 }}>
           {runtime.cells.length === 0 ? (
-            <Paragraph color="$gray10">No messages yet.</Paragraph>
+            <Paragraph style={{ color: palette.mutedText }}>No messages yet.</Paragraph>
           ) : (
-            runtime.cells.map((cell) => <CellRow key={cell.id} cell={cell} sessionId={session.id} onApproval={respondApproval} />)
+            runtime.cells.map((cell) => (
+              <CellRow key={cell.id} cell={cell} palette={palette} sessionId={session.id} onApproval={respondApproval} />
+            ))
           )}
         </YStack>
       </ScrollView>
 
-      <YStack style={{ padding: 16, gap: 8 }}>
+      <YStack style={{ padding: 16, gap: 8, borderTopWidth: 1, borderTopColor: palette.border, backgroundColor: palette.surface }}>
         <Input
           value={text}
           onChangeText={setText}
@@ -91,9 +106,10 @@ export default function SessionScreen() {
           multiline
           numberOfLines={3}
           autoCapitalize="sentences"
+          style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
         />
         <Button
-          theme="blue"
+          style={{ backgroundColor: palette.accent, color: '#ffffff' }}
           onPress={async () => {
             const trimmed = text.trim();
             if (!trimmed) return;
@@ -114,25 +130,44 @@ export default function SessionScreen() {
 
 function CellRow(props: {
   cell: TranscriptCell;
+  palette: ChatGptPalette;
   sessionId: string;
   onApproval: (sessionId: string, requestKey: string, approve: boolean) => Promise<void>;
 }) {
-  const { cell } = props;
+  const { cell, palette } = props;
 
   if (cell.type === 'approval') {
     return (
-      <Card style={{ borderWidth: 1, borderColor: '#d1d5db' }}>
+      <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
         <Card.Header>
-          <Text fontWeight="700">Approval Required</Text>
-          <Paragraph size="$2">method: {cell.method}</Paragraph>
-          {cell.reason ? <Paragraph size="$2">reason: {cell.reason}</Paragraph> : null}
-          <Paragraph size="$2">status: {cell.status}</Paragraph>
+          <Text fontWeight="700" style={{ color: palette.text }}>
+            Approval Required
+          </Text>
+          <Paragraph size="$2" style={{ color: palette.mutedText }}>
+            method: {cell.method}
+          </Paragraph>
+          {cell.reason ? (
+            <Paragraph size="$2" style={{ color: palette.mutedText }}>
+              reason: {cell.reason}
+            </Paragraph>
+          ) : null}
+          <Paragraph size="$2" style={{ color: palette.mutedText }}>
+            status: {cell.status}
+          </Paragraph>
         </Card.Header>
         {cell.status === 'pending' ? (
           <Card.Footer>
             <XStack style={{ gap: 8 }}>
-              <Button onPress={() => void props.onApproval(props.sessionId, cell.requestKey, true)}>Approve</Button>
-              <Button theme="red" onPress={() => void props.onApproval(props.sessionId, cell.requestKey, false)}>
+              <Button
+                style={{ backgroundColor: palette.accent, color: '#ffffff' }}
+                onPress={() => void props.onApproval(props.sessionId, cell.requestKey, true)}
+              >
+                Approve
+              </Button>
+              <Button
+                style={{ backgroundColor: palette.danger, color: '#ffffff' }}
+                onPress={() => void props.onApproval(props.sessionId, cell.requestKey, false)}
+              >
                 Deny
               </Button>
             </XStack>
@@ -144,12 +179,24 @@ function CellRow(props: {
 
   if (cell.type === 'tool') {
     return (
-      <Card style={{ borderWidth: 1, borderColor: '#d1d5db' }}>
+      <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
         <Card.Header>
-          <Text fontWeight="700">Tool: {cell.toolName}</Text>
-          <Paragraph size="$2">status: {cell.status}</Paragraph>
-          {cell.title ? <Paragraph size="$2">{cell.title}</Paragraph> : null}
-          {cell.output ? <Paragraph size="$2">{cell.output}</Paragraph> : null}
+          <Text fontWeight="700" style={{ color: palette.text }}>
+            Tool: {cell.toolName}
+          </Text>
+          <Paragraph size="$2" style={{ color: palette.mutedText }}>
+            status: {cell.status}
+          </Paragraph>
+          {cell.title ? (
+            <Paragraph size="$2" style={{ color: palette.mutedText }}>
+              {cell.title}
+            </Paragraph>
+          ) : null}
+          {cell.output ? (
+            <Paragraph size="$2" style={{ color: palette.text }}>
+              {cell.output}
+            </Paragraph>
+          ) : null}
         </Card.Header>
       </Card>
     );
@@ -157,9 +204,9 @@ function CellRow(props: {
 
   if (cell.type === 'assistant') {
     return (
-      <Card style={{ borderWidth: 1, borderColor: '#bfdbfe', backgroundColor: '#eff6ff' }}>
+      <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.assistantBubble }}>
         <Card.Header>
-          <Text>{cell.text}</Text>
+          <Text style={{ color: palette.text }}>{cell.text}</Text>
         </Card.Header>
       </Card>
     );
@@ -167,9 +214,9 @@ function CellRow(props: {
 
   if (cell.type === 'user') {
     return (
-      <Card style={{ borderWidth: 1, borderColor: '#bbf7d0', backgroundColor: '#f0fdf4' }}>
+      <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.userBubble }}>
         <Card.Header>
-          <Text>{cell.text}</Text>
+          <Text style={{ color: palette.text }}>{cell.text}</Text>
         </Card.Header>
       </Card>
     );
@@ -177,18 +224,20 @@ function CellRow(props: {
 
   if (cell.type === 'error') {
     return (
-      <Card style={{ borderWidth: 1, borderColor: '#fecaca', backgroundColor: '#fef2f2' }}>
+      <Card style={{ borderWidth: 1, borderColor: palette.danger, backgroundColor: palette.surface }}>
         <Card.Header>
-          <Text color="$red11">{cell.text}</Text>
+          <Text style={{ color: palette.danger }}>{cell.text}</Text>
         </Card.Header>
       </Card>
     );
   }
 
   return (
-    <Card style={{ borderWidth: 1, borderColor: '#d1d5db' }}>
+    <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
       <Card.Header>
-        <Paragraph size="$2">{cell.text}</Paragraph>
+        <Paragraph size="$2" style={{ color: palette.mutedText }}>
+          {cell.text}
+        </Paragraph>
       </Card.Header>
     </Card>
   );
