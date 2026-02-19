@@ -6,6 +6,8 @@ import { DaemonRpcClient } from '@/src/transport/daemonRpcClient';
 import { parseNotification, parseServerRequest, type ParsedEvent } from '@/src/transport/eventParser';
 
 const STORAGE_KEY = 'crabbot_android_state_v1';
+const RECONNECT_BASE_DELAY_MS = 1000;
+const RECONNECT_MAX_DELAY_MS = 30000;
 
 const initialState: AppState = {
   connections: [],
@@ -176,6 +178,9 @@ export function AppProvider(props: { children: React.ReactNode }) {
   const stateRef = useRef(state);
   const clientsRef = useRef(new Map<string, DaemonRpcClient>());
   const approvalRequestIdRef = useRef(new Map<string, unknown>());
+  const reconnectTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const reconnectAttemptsRef = useRef(new Map<string, number>());
+  const autoReconnectEnabledRef = useRef(new Set<string>());
 
   useEffect(() => {
     stateRef.current = state;
@@ -199,6 +204,22 @@ export function AppProvider(props: { children: React.ReactNode }) {
   useEffect(() => {
     void AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
+
+  const clearReconnectTimer = useCallback((connectionId: string) => {
+    const timer = reconnectTimersRef.current.get(connectionId);
+    if (timer) {
+      clearTimeout(timer);
+      reconnectTimersRef.current.delete(connectionId);
+    }
+  }, []);
+
+  const resetReconnectState = useCallback(
+    (connectionId: string) => {
+      clearReconnectTimer(connectionId);
+      reconnectAttemptsRef.current.delete(connectionId);
+    },
+    [clearReconnectTimer],
+  );
 
   const applyParsedEvent = useCallback((connectionId: string, event: ParsedEvent) => {
     const currentState = stateRef.current;
@@ -395,6 +416,51 @@ export function AppProvider(props: { children: React.ReactNode }) {
       client.onConnectionState = (status, err) => {
         console.log('[connection] state', { connectionId, status, err });
         dispatch({ type: 'set-connection-status', payload: { connectionId, status, errorMessage: err } });
+
+        if (status === 'connected') {
+          resetReconnectState(connectionId);
+          return;
+        }
+
+        if (status === 'error' || status === 'disconnected') {
+          if (!autoReconnectEnabledRef.current.has(connectionId)) {
+            return;
+          }
+
+          const connection = stateRef.current.connections.find((item) => item.id === connectionId);
+          if (!connection) {
+            return;
+          }
+
+          if (reconnectTimersRef.current.has(connectionId)) {
+            return;
+          }
+
+          const attempt = reconnectAttemptsRef.current.get(connectionId) ?? 0;
+          const exponentialDelay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** attempt, RECONNECT_MAX_DELAY_MS);
+          const jitteredDelay = Math.round(exponentialDelay * (0.85 + Math.random() * 0.3));
+          console.log('[connection] schedule reconnect', { connectionId, attempt: attempt + 1, delayMs: jitteredDelay });
+
+          const timer = setTimeout(() => {
+            reconnectTimersRef.current.delete(connectionId);
+
+            if (!autoReconnectEnabledRef.current.has(connectionId)) {
+              return;
+            }
+
+            const currentConnection = stateRef.current.connections.find((item) => item.id === connectionId);
+            if (!currentConnection) {
+              return;
+            }
+
+            reconnectAttemptsRef.current.set(connectionId, attempt + 1);
+            void ensureClient(connectionId).catch((error) => {
+              console.log('[connection] reconnect timer connect failed', { connectionId, error });
+            });
+          }, jitteredDelay);
+
+          reconnectTimersRef.current.set(connectionId, timer);
+        }
       };
       client.onRawMessage = (raw) => {
         console.log('[connection] raw message', {
@@ -427,7 +493,40 @@ export function AppProvider(props: { children: React.ReactNode }) {
       clientsRef.current.set(connectionId, client);
       return client;
     },
-    [applyParsedEvent],
+    [applyParsedEvent, resetReconnectState],
+  );
+
+  const connectConnection = useCallback(
+    async (connectionId: string) => {
+      autoReconnectEnabledRef.current.add(connectionId);
+      clearReconnectTimer(connectionId);
+      try {
+        await ensureClient(connectionId);
+      } catch (error) {
+        console.log('[connection] connect failed', { connectionId, error });
+        dispatch({
+          type: 'set-connection-status',
+          payload: {
+            connectionId,
+            status: 'error',
+            errorMessage: error instanceof Error ? error.message : 'Unknown connect error',
+          },
+        });
+
+        const attempt = reconnectAttemptsRef.current.get(connectionId) ?? 0;
+        const exponentialDelay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** attempt, RECONNECT_MAX_DELAY_MS);
+        const jitteredDelay = Math.round(exponentialDelay * (0.85 + Math.random() * 0.3));
+        if (!reconnectTimersRef.current.has(connectionId)) {
+          const timer = setTimeout(() => {
+            reconnectTimersRef.current.delete(connectionId);
+            reconnectAttemptsRef.current.set(connectionId, attempt + 1);
+            void connectConnection(connectionId);
+          }, jitteredDelay);
+          reconnectTimersRef.current.set(connectionId, timer);
+        }
+      }
+    },
+    [clearReconnectTimer, ensureClient],
   );
 
   const addConnection = useCallback((name: string, websocketUrl: string) => {
@@ -442,8 +541,12 @@ export function AppProvider(props: { children: React.ReactNode }) {
       status: 'disconnected',
     };
     dispatch({ type: 'add-connection', payload: connection });
+    autoReconnectEnabledRef.current.add(connection.id);
+    setTimeout(() => {
+      void connectConnection(connection.id);
+    }, 0);
     return connection.id;
-  }, []);
+  }, [connectConnection]);
 
   const updateConnection = useCallback((connectionId: string, name: string, websocketUrl: string) => {
     const existing = stateRef.current.connections.find((connection) => connection.id === connectionId);
@@ -453,6 +556,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
 
     const didUrlChange = existing.websocketUrl !== websocketUrl;
     if (didUrlChange) {
+      resetReconnectState(connectionId);
       clientsRef.current.get(connectionId)?.disconnect();
       clientsRef.current.delete(connectionId);
     }
@@ -462,37 +566,42 @@ export function AppProvider(props: { children: React.ReactNode }) {
       payload: { connectionId, name, websocketUrl, resetStatus: didUrlChange },
     });
     return true;
-  }, []);
+  }, [resetReconnectState]);
 
   const removeConnection = useCallback((connectionId: string) => {
+    autoReconnectEnabledRef.current.delete(connectionId);
+    resetReconnectState(connectionId);
     clientsRef.current.get(connectionId)?.disconnect();
     clientsRef.current.delete(connectionId);
     dispatch({ type: 'remove-connection', payload: { connectionId } });
-  }, []);
-
-  const connectConnection = useCallback(
-    async (connectionId: string) => {
-      try {
-        await ensureClient(connectionId);
-      } catch (error) {
-        console.log('[connection] connect failed', { connectionId, error });
-        dispatch({
-          type: 'set-connection-status',
-          payload: {
-            connectionId,
-            status: 'error',
-            errorMessage: error instanceof Error ? error.message : 'Unknown connect error',
-          },
-        });
-      }
-    },
-    [ensureClient],
-  );
+  }, [resetReconnectState]);
 
   const disconnectConnection = useCallback((connectionId: string) => {
+    autoReconnectEnabledRef.current.delete(connectionId);
+    resetReconnectState(connectionId);
     clientsRef.current.get(connectionId)?.disconnect();
     clientsRef.current.delete(connectionId);
     dispatch({ type: 'set-connection-status', payload: { connectionId, status: 'disconnected' } });
+  }, [resetReconnectState]);
+
+  useEffect(() => {
+    const reconnectTimers = reconnectTimersRef.current;
+    const reconnectAttempts = reconnectAttemptsRef.current;
+    const autoReconnectEnabled = autoReconnectEnabledRef.current;
+    const clients = clientsRef.current;
+
+    return () => {
+      for (const timer of reconnectTimers.values()) {
+        clearTimeout(timer);
+      }
+      reconnectTimers.clear();
+      reconnectAttempts.clear();
+      autoReconnectEnabled.clear();
+      for (const client of clients.values()) {
+        client.disconnect('provider-unmount');
+      }
+      clients.clear();
+    };
   }, []);
 
   const createSession = useCallback(
