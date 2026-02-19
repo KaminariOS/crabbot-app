@@ -24,12 +24,15 @@ export default function ConnectionsScreen() {
                 </Card.Header>
                 <Card.Footer>
                   <XStack style={{ gap: 8, flexWrap: 'wrap' }}>
-                    <Link href={`/connection/${connection.id}` as never} asChild>
-                      <Button>Open</Button>
-                    </Link>
-                    {connection.status === 'connected' || connection.status === 'connecting' ? (
-                      <Button onPress={() => disconnectConnection(connection.id)}>Disconnect</Button>
-                    ) : (
+                  <Link href={`/connection/${connection.id}` as never} asChild>
+                    <Button>Open</Button>
+                  </Link>
+                  <Link href={`/connection/edit/${connection.id}` as never} asChild>
+                    <Button>Edit</Button>
+                  </Link>
+                  {connection.status === 'connected' || connection.status === 'connecting' ? (
+                    <Button onPress={() => disconnectConnection(connection.id)}>Disconnect</Button>
+                  ) : (
                       <Button onPress={() => void connectConnection(connection.id)}>Connect</Button>
                     )}
                     <Button theme="red" onPress={() => removeConnection(connection.id)}>

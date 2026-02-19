@@ -17,6 +17,10 @@ const initialState: AppState = {
 type AppAction =
   | { type: 'hydrate'; payload: AppState }
   | { type: 'add-connection'; payload: Connection }
+  | {
+      type: 'update-connection';
+      payload: { connectionId: string; name: string; websocketUrl: string; resetStatus: boolean };
+    }
   | { type: 'remove-connection'; payload: { connectionId: string } }
   | { type: 'set-connection-status'; payload: { connectionId: string; status: Connection['status']; errorMessage?: string } }
   | { type: 'upsert-session'; payload: SessionRef }
@@ -31,6 +35,22 @@ function reducer(state: AppState, action: AppAction): AppState {
       return action.payload;
     case 'add-connection':
       return { ...state, connections: [action.payload, ...state.connections] };
+    case 'update-connection':
+      return {
+        ...state,
+        connections: state.connections.map((connection) =>
+          connection.id === action.payload.connectionId
+            ? {
+                ...connection,
+                name: action.payload.name.trim() || 'Connection',
+                websocketUrl: action.payload.websocketUrl,
+                updatedAt: Date.now(),
+                status: action.payload.resetStatus ? 'disconnected' : connection.status,
+                errorMessage: action.payload.resetStatus ? undefined : connection.errorMessage,
+              }
+            : connection,
+        ),
+      };
     case 'remove-connection': {
       const { connectionId } = action.payload;
       const sessions = state.sessions.filter((s) => s.connectionId !== connectionId);
@@ -133,6 +153,7 @@ function reducer(state: AppState, action: AppAction): AppState {
 type AppContextType = {
   state: AppState;
   addConnection: (name: string, websocketUrl: string) => string;
+  updateConnection: (connectionId: string, name: string, websocketUrl: string) => boolean;
   removeConnection: (connectionId: string) => void;
   connectConnection: (connectionId: string) => Promise<void>;
   disconnectConnection: (connectionId: string) => void;
@@ -423,6 +444,25 @@ export function AppProvider(props: { children: React.ReactNode }) {
     return connection.id;
   }, []);
 
+  const updateConnection = useCallback((connectionId: string, name: string, websocketUrl: string) => {
+    const existing = stateRef.current.connections.find((connection) => connection.id === connectionId);
+    if (!existing) {
+      return false;
+    }
+
+    const didUrlChange = existing.websocketUrl !== websocketUrl;
+    if (didUrlChange) {
+      clientsRef.current.get(connectionId)?.disconnect();
+      clientsRef.current.delete(connectionId);
+    }
+
+    dispatch({
+      type: 'update-connection',
+      payload: { connectionId, name, websocketUrl, resetStatus: didUrlChange },
+    });
+    return true;
+  }, []);
+
   const removeConnection = useCallback((connectionId: string) => {
     clientsRef.current.get(connectionId)?.disconnect();
     clientsRef.current.delete(connectionId);
@@ -706,6 +746,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
     () => ({
       state,
       addConnection,
+      updateConnection,
       removeConnection,
       connectConnection,
       disconnectConnection,
@@ -721,6 +762,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
     [
       state,
       addConnection,
+      updateConnection,
       removeConnection,
       connectConnection,
       disconnectConnection,

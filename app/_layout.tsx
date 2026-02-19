@@ -13,6 +13,7 @@ export default function RootLayout() {
           <Stack>
             <Stack.Screen name="index" options={{ title: 'Connections' }} />
             <Stack.Screen name="connection/new" options={{ title: 'Add Connection' }} />
+            <Stack.Screen name="connection/edit/[connectionId]" options={{ title: 'Edit Connection' }} />
             <Stack.Screen name="connection/[connectionId]" options={{ title: 'Connection' }} />
             <Stack.Screen name="session/[sessionId]" options={{ title: 'Session' }} />
           </Stack>

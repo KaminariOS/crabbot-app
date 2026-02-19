@@ -50,6 +50,7 @@ export default function ConnectionDetailScreen() {
               ) : (
                 <Button onPress={() => void connectConnection(connection.id)}>Connect</Button>
               )}
+              <Button onPress={() => router.push(`/connection/edit/${connection.id}` as never)}>Edit</Button>
               <Button
                 theme="blue"
                 onPress={async () => {
