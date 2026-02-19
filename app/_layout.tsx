@@ -2,9 +2,10 @@ import { Link, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { Feather } from '@expo/vector-icons';
+import { Pressable, Text, View } from 'react-native';
 import { Button, TamaguiProvider, Theme } from 'tamagui';
 
-import { AppProvider } from '@/src/state/AppContext';
+import { AppProvider, useAppState } from '@/src/state/AppContext';
 import { ThemeProvider, useThemeSettings } from '@/src/state/ThemeContext';
 import { getChatGptPalette } from '@/src/ui/chatgpt';
 import tamaguiConfig from '@/tamagui.config';
@@ -48,6 +49,7 @@ function RootContent() {
             <Stack.Screen name="connection/[connectionId]" options={{ title: 'Connection' }} />
             <Stack.Screen name="session/[sessionId]" options={{ title: 'Session' }} />
           </Stack>
+          <InAppNotificationOverlay />
           <Link href={'/settings' as never} asChild>
             <Button
               circular
@@ -77,5 +79,68 @@ function RootContent() {
         </AppProvider>
       </Theme>
     </TamaguiProvider>
+  );
+}
+
+function InAppNotificationOverlay() {
+  const { inAppNotifications, dismissInAppNotification } = useAppState();
+  const { resolvedTheme } = useThemeSettings();
+  const palette = getChatGptPalette(resolvedTheme);
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={{
+        position: 'absolute',
+        top: 104,
+        left: 12,
+        right: 12,
+        zIndex: 100,
+        gap: 8,
+      }}
+    >
+      {inAppNotifications.map((notification) => {
+        const isApproval = notification.kind === 'approval';
+        return (
+          <Pressable
+            key={notification.id}
+            onPress={() => dismissInAppNotification(notification.id)}
+            style={{
+              borderWidth: 1,
+              borderColor: isApproval ? palette.accent : palette.border,
+              borderLeftWidth: 4,
+              borderLeftColor: isApproval ? palette.accent : palette.mutedText,
+              borderRadius: 10,
+              paddingHorizontal: 12,
+              paddingVertical: 10,
+              backgroundColor: palette.surface,
+            }}
+          >
+            <Button
+              chromeless
+              size="$2"
+              onPress={() => dismissInAppNotification(notification.id)}
+              style={{
+                alignSelf: 'flex-end',
+                position: 'absolute',
+                right: 6,
+                top: 2,
+                minHeight: 20,
+                minWidth: 20,
+              }}
+              accessibilityLabel="Dismiss notification"
+            >
+              <Feather name="x" size={14} color={palette.mutedText} />
+            </Button>
+            <View style={{ paddingRight: 16 }}>
+              <Text style={{ color: palette.text, fontSize: 13, fontWeight: '700' }}>{notification.title}</Text>
+              <Text style={{ color: palette.mutedText, fontSize: 12, marginTop: 2 }}>
+                {notification.body}
+              </Text>
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }

@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 import type { AppState, Connection, SessionRef, TranscriptCell } from '@/src/domain/types';
 import { DaemonRpcClient } from '@/src/transport/daemonRpcClient';
@@ -221,6 +221,7 @@ function reducer(state: AppState, action: AppAction): AppState {
 
 type AppContextType = {
   state: AppState;
+  inAppNotifications: InAppNotification[];
   addConnection: (name: string, websocketUrl: string) => string;
   updateConnection: (connectionId: string, name: string, websocketUrl: string) => boolean;
   removeConnection: (connectionId: string) => void;
@@ -235,12 +236,22 @@ type AppContextType = {
   interruptSession: (sessionId: string) => Promise<void>;
   respondApproval: (sessionId: string, requestKey: string, approve: boolean) => Promise<void>;
   setActiveSession: (sessionId: string) => void;
+  dismissInAppNotification: (notificationId: string) => void;
 };
 
 const AppContext = createContext<AppContextType | null>(null);
 
+export type InAppNotification = {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: number;
+  kind: 'status' | 'approval';
+};
+
 export function AppProvider(props: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const [inAppNotifications, setInAppNotifications] = useState<InAppNotification[]>([]);
 
   const stateRef = useRef(state);
   const clientsRef = useRef(new Map<string, DaemonRpcClient>());
@@ -248,6 +259,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
   const reconnectTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const reconnectAttemptsRef = useRef(new Map<string, number>());
   const autoReconnectEnabledRef = useRef(new Set<string>());
+  const notificationTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
     stateRef.current = state;
@@ -287,6 +299,31 @@ export function AppProvider(props: { children: React.ReactNode }) {
     },
     [clearReconnectTimer],
   );
+
+  const dismissInAppNotification = useCallback((notificationId: string) => {
+    setInAppNotifications((current) => current.filter((item) => item.id !== notificationId));
+    const timer = notificationTimersRef.current.get(notificationId);
+    if (timer) {
+      clearTimeout(timer);
+      notificationTimersRef.current.delete(notificationId);
+    }
+  }, []);
+
+  const enqueueInAppNotification = useCallback((payload: Omit<InAppNotification, 'id' | 'createdAt'>) => {
+    const id = makeId();
+    const notification: InAppNotification = {
+      ...payload,
+      id,
+      createdAt: Date.now(),
+    };
+    setInAppNotifications((current) => [...current.slice(-2), notification]);
+
+    const timer = setTimeout(() => {
+      setInAppNotifications((current) => current.filter((item) => item.id !== id));
+      notificationTimersRef.current.delete(id);
+    }, 8000);
+    notificationTimersRef.current.set(id, timer);
+  }, []);
 
   const applyParsedEvent = useCallback((connectionId: string, event: ParsedEvent) => {
     const currentState = stateRef.current;
@@ -345,6 +382,13 @@ export function AppProvider(props: { children: React.ReactNode }) {
             createdAt: Date.now(),
           },
         },
+      });
+      const connectionName =
+        currentState.connections.find((connection) => connection.id === connectionId)?.name ?? 'Connection';
+      enqueueInAppNotification({
+        kind: 'status',
+        title: 'Agent turn completed',
+        body: `${connectionName} · ${session.title} (${event.status})`,
       });
       return;
     }
@@ -451,8 +495,15 @@ export function AppProvider(props: { children: React.ReactNode }) {
           },
         },
       });
+      const connectionName =
+        currentState.connections.find((connection) => connection.id === connectionId)?.name ?? 'Connection';
+      enqueueInAppNotification({
+        kind: 'approval',
+        title: 'Agent needs approval',
+        body: event.reason?.trim() || `${connectionName} · ${session.title} requested ${event.method}`,
+      });
     }
-  }, []);
+  }, [enqueueInAppNotification]);
 
   const ensureClient = useCallback(
     async (connectionId: string): Promise<DaemonRpcClient> => {
@@ -648,12 +699,17 @@ export function AppProvider(props: { children: React.ReactNode }) {
   }, [resetReconnectState]);
 
   useEffect(() => {
+    const notificationTimers = notificationTimersRef.current;
     const reconnectTimers = reconnectTimersRef.current;
     const reconnectAttempts = reconnectAttemptsRef.current;
     const autoReconnectEnabled = autoReconnectEnabledRef.current;
     const clients = clientsRef.current;
 
     return () => {
+      for (const timer of notificationTimers.values()) {
+        clearTimeout(timer);
+      }
+      notificationTimers.clear();
       for (const timer of reconnectTimers.values()) {
         clearTimeout(timer);
       }
@@ -948,6 +1004,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
   const contextValue = useMemo<AppContextType>(
     () => ({
       state,
+      inAppNotifications,
       addConnection,
       updateConnection,
       removeConnection,
@@ -962,9 +1019,11 @@ export function AppProvider(props: { children: React.ReactNode }) {
       interruptSession,
       respondApproval,
       setActiveSession,
+      dismissInAppNotification,
     }),
     [
       state,
+      inAppNotifications,
       addConnection,
       updateConnection,
       removeConnection,
@@ -979,6 +1038,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
       interruptSession,
       respondApproval,
       setActiveSession,
+      dismissInAppNotification,
     ],
   );
 
