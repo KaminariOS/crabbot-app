@@ -247,20 +247,9 @@ export default function SessionScreen() {
                 borderColor: palette.border,
                 backgroundColor: palette.surfaceAlt,
                 color: palette.text,
+                minHeight: 42,
               }}
             />
-            <Button
-              onPress={() => void handleSend()}
-              disabled={!text.trim()}
-              style={{
-                borderWidth: 1,
-                borderColor: palette.accent,
-                backgroundColor: text.trim() ? palette.accent : palette.surfaceAlt,
-                color: '#ffffff',
-              }}
-            >
-              Send
-            </Button>
           </XStack>
         </YStack>
       </KeyboardAvoidingView>
