@@ -23,67 +23,72 @@ export default function ConnectionsScreen() {
             <Paragraph style={{ color: palette.mutedText }}>No terminals yet. Add one by QR scan or manual URL input.</Paragraph>
           ) : (
             state.connections.map((connection) => (
-              <Card key={connection.id} style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
-                <Card.Header style={{ gap: 4 }}>
-                  <XStack style={{ alignItems: 'center', gap: 12 }}>
-                    <View
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 20,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: palette.surfaceAlt,
-                        borderWidth: 1,
-                        borderColor: palette.border,
-                      }}
-                    >
-                      <Text fontWeight="700" style={{ color: palette.text }}>
-                        {initials(connection.name)}
-                      </Text>
-                    </View>
-                    <YStack style={{ flex: 1, gap: 2 }}>
-                      <Text fontWeight="700" style={{ color: palette.text }}>
-                        {connection.name}
-                      </Text>
-                      <Paragraph size="$2" style={{ color: palette.mutedText }}>
-                        {safeHost(connection.websocketUrl) ?? connection.websocketUrl}
-                      </Paragraph>
-                      <XStack style={{ alignItems: 'center', gap: 6 }}>
-                        <View
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: 4,
-                            backgroundColor: statusColor(connection.status),
-                          }}
-                        />
+              <Pressable key={connection.id} onPress={() => router.push(`/connection/${connection.id}` as never)}>
+                <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
+                  <Card.Header style={{ gap: 4 }}>
+                    <XStack style={{ alignItems: 'center', gap: 12 }}>
+                      <View
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 20,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: palette.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: palette.border,
+                        }}
+                      >
+                        <Text fontWeight="700" style={{ color: palette.text }}>
+                          {initials(connection.name)}
+                        </Text>
+                      </View>
+                      <YStack style={{ flex: 1, gap: 2 }}>
+                        <Text fontWeight="700" style={{ color: palette.text }}>
+                          {connection.name}
+                        </Text>
                         <Paragraph size="$2" style={{ color: palette.mutedText }}>
-                          {statusLabel(connection.status)} • {sessionCountLabel(state.sessions, connection.id)}
+                          {safeHost(connection.websocketUrl) ?? connection.websocketUrl}
                         </Paragraph>
-                      </XStack>
-                    </YStack>
-                    <Button
-                      accessibilityLabel={`Actions for ${connection.name}`}
-                      onPress={() => setMenuConnectionId(connection.id)}
-                      style={{
-                        minWidth: 40,
-                        height: 40,
-                        borderWidth: 1,
-                        borderColor: palette.border,
-                        backgroundColor: palette.surfaceAlt,
-                        color: palette.text,
-                        paddingHorizontal: 0,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Text style={{ color: palette.text, fontSize: 26, lineHeight: 26 }}>⋮</Text>
-                    </Button>
-                  </XStack>
-                  {connection.errorMessage ? <Paragraph style={{ color: palette.danger }}>{connection.errorMessage}</Paragraph> : null}
-                </Card.Header>
-              </Card>
+                        <XStack style={{ alignItems: 'center', gap: 6 }}>
+                          <View
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: 4,
+                              backgroundColor: statusColor(connection.status),
+                            }}
+                          />
+                          <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                            {statusLabel(connection.status)} • {sessionCountLabel(state.sessions, connection.id)}
+                          </Paragraph>
+                        </XStack>
+                      </YStack>
+                      <Button
+                        accessibilityLabel={`Actions for ${connection.name}`}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          setMenuConnectionId(connection.id);
+                        }}
+                        style={{
+                          minWidth: 40,
+                          height: 40,
+                          borderWidth: 1,
+                          borderColor: palette.border,
+                          backgroundColor: palette.surfaceAlt,
+                          color: palette.text,
+                          paddingHorizontal: 0,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Text style={{ color: palette.text, fontSize: 26, lineHeight: 26 }}>⋮</Text>
+                      </Button>
+                    </XStack>
+                    {connection.errorMessage ? <Paragraph style={{ color: palette.danger }}>{connection.errorMessage}</Paragraph> : null}
+                  </Card.Header>
+                </Card>
+              </Pressable>
             ))
           )}
         </YStack>
@@ -112,15 +117,6 @@ export default function ConnectionsScreen() {
                 <Text style={{ color: palette.mutedText, fontSize: 13, paddingHorizontal: 6, paddingTop: 4 }}>
                   {menuConnection.name}
                 </Text>
-                <Button
-                  style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
-                  onPress={() => {
-                    setMenuConnectionId(null);
-                    router.push(`/connection/${menuConnection.id}` as never);
-                  }}
-                >
-                  Open
-                </Button>
                 <Button
                   style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
                   onPress={() => {
