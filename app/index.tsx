@@ -15,14 +15,6 @@ export default function ConnectionsScreen() {
     <YStack flex={1}>
       <ScrollView>
         <YStack style={{ padding: 16, gap: 12, paddingBottom: 96 }}>
-          <Link href={'/settings' as never} asChild>
-            <Button
-              style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
-            >
-              Settings
-            </Button>
-          </Link>
-
           {state.connections.length === 0 ? (
             <Paragraph style={{ color: palette.mutedText }}>No connections yet. Add one by QR scan or manual URL input.</Paragraph>
           ) : (
