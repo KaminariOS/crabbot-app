@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
-import { Alert } from 'react-native';
+import { Alert, Pressable } from 'react-native';
 import { Button, Card, Paragraph, ScrollView, Text, XStack, YStack } from 'tamagui';
 
 import { useAppState } from '@/src/state/AppContext';
@@ -20,7 +20,6 @@ export default function ConnectionDetailScreen() {
     resumeLatestSession,
     discoverSessions,
     resumeSession,
-    forkSession,
     setActiveSession,
   } = useAppState();
   const { resolvedTheme } = useThemeSettings();
@@ -161,91 +160,34 @@ export default function ConnectionDetailScreen() {
           <Paragraph style={{ color: palette.mutedText }}>No sessions yet. Create one or refresh threads.</Paragraph>
         ) : (
           sessions.map((session) => (
-            <Card key={session.id} style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
-              <Card.Header style={{ gap: 4 }}>
-                <Text fontWeight="700" style={{ color: palette.text }}>
-                  {session.title}
-                </Text>
-                <Paragraph size="$2" style={{ color: palette.mutedText }}>
-                  threadId: {session.threadId}
-                </Paragraph>
-                <Paragraph size="$2" style={{ color: palette.mutedText }}>
-                  state: {session.state}
-                </Paragraph>
-              </Card.Header>
-              <Card.Footer>
-                <YStack style={{ gap: 8, width: '100%' }}>
-                  <XStack style={{ gap: 8 }}>
-                    <Button
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        borderWidth: 1,
-                        borderColor: palette.border,
-                        backgroundColor: palette.surfaceAlt,
-                        color: palette.text,
-                        paddingHorizontal: 8,
-                      }}
-                      onPress={() => {
-                        setActiveSession(session.id);
-                        router.push(`/session/${session.id}` as never);
-                      }}
-                    >
-                      Open
-                    </Button>
-                    <Button
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        borderWidth: 1,
-                        borderColor: palette.border,
-                        backgroundColor: palette.surfaceAlt,
-                        color: palette.text,
-                        paddingHorizontal: 8,
-                      }}
-                      onPress={async () => {
-                        try {
-                          await resumeSession(session.id);
-                        } catch (error) {
-                          Alert.alert(
-                            'Resume failed',
-                            error instanceof Error ? error.message : 'Unknown resume error',
-                          );
-                        }
-                      }}
-                    >
-                      Resume
-                    </Button>
-                  </XStack>
-                  <Button
-                    style={{
-                      width: '100%',
-                      minWidth: 0,
-                      borderWidth: 1,
-                      borderColor: palette.border,
-                      backgroundColor: palette.surfaceAlt,
-                      color: palette.text,
-                      paddingHorizontal: 8,
-                    }}
-                    onPress={async () => {
-                      try {
-                        const forked = await forkSession(session.id);
-                        if (forked) {
-                          router.push(`/session/${forked.id}` as never);
-                        }
-                      } catch (error) {
-                        Alert.alert(
-                          'Fork failed',
-                          error instanceof Error ? error.message : 'Unknown fork error',
-                        );
-                      }
-                    }}
-                  >
-                    Fork
-                  </Button>
-                </YStack>
-              </Card.Footer>
-            </Card>
+            <Pressable
+              key={session.id}
+              onPress={() => {
+                void (async () => {
+                  try {
+                    await resumeSession(session.id);
+                    setActiveSession(session.id);
+                    router.push(`/session/${session.id}` as never);
+                  } catch (error) {
+                    Alert.alert('Resume failed', error instanceof Error ? error.message : 'Unknown resume error');
+                  }
+                })();
+              }}
+            >
+              <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
+                <Card.Header style={{ gap: 4 }}>
+                  <Text fontWeight="700" style={{ color: palette.text }}>
+                    {session.title}
+                  </Text>
+                  <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                    threadId: {session.threadId}
+                  </Paragraph>
+                  <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                    state: {session.state}
+                  </Paragraph>
+                </Card.Header>
+              </Card>
+            </Pressable>
           ))
         )}
       </YStack>
