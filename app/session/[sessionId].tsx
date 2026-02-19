@@ -1,24 +1,46 @@
-import { useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { Alert, FlatList, View } from 'react-native';
-import { Button, Card, Input, Paragraph, Text, XStack, YStack } from 'tamagui';
+import { Feather } from '@expo/vector-icons';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, FlatList, KeyboardAvoidingView, Platform, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Button, Input, Paragraph, Separator, Text, XStack, YStack } from 'tamagui';
 
 import type { TranscriptCell } from '@/src/domain/types';
 import { useAppState } from '@/src/state/AppContext';
 import { useThemeSettings } from '@/src/state/ThemeContext';
 import { getChatGptPalette, type ChatGptPalette } from '@/src/ui/chatgpt';
 
+const STREAM_DEBUG = true;
+
 export default function SessionScreen() {
   const params = useLocalSearchParams<{ sessionId: string }>();
   const sessionId = String(params.sessionId ?? '');
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const { state, setActiveSession, sendMessage, interruptSession, resumeSession, forkSession, respondApproval } = useAppState();
   const { resolvedTheme } = useThemeSettings();
   const palette = getChatGptPalette(resolvedTheme);
   const [text, setText] = useState('');
 
+  const listRef = useRef<FlatList<TranscriptCell> | null>(null);
+
   const session = state.sessions.find((item) => item.id === sessionId);
   const runtime = state.runtimes[sessionId] ?? { turnId: null, cells: [] };
+  const visibleCells = useMemo(() => coalesceAssistantCells(runtime.cells), [runtime.cells]);
+  useEffect(() => {
+    if (!STREAM_DEBUG) return;
+    const rawAssistant = runtime.cells.filter((cell) => cell.type === 'assistant').length;
+    const visibleAssistant = visibleCells.filter((cell) => cell.type === 'assistant').length;
+    console.log('[stream-debug][render] cells', {
+      sessionId,
+      rawCount: runtime.cells.length,
+      rawAssistant,
+      visibleCount: visibleCells.length,
+      visibleAssistant,
+      lastVisibleType: visibleCells[visibleCells.length - 1]?.type,
+    });
+  }, [runtime.cells, sessionId, visibleCells]);
 
   useEffect(() => {
     if (session) {
@@ -26,19 +48,17 @@ export default function SessionScreen() {
     }
   }, [session, setActiveSession]);
 
-  if (!session) {
-    return (
-      <YStack style={{ flex: 1, padding: 16 }}>
-        <Text fontWeight="700" style={{ color: palette.text }}>
-          Session not found
-        </Text>
-      </YStack>
-    );
-  }
+  useEffect(() => {
+    listRef.current?.scrollToEnd({ animated: true });
+  }, [visibleCells.length]);
+
+  const statusLabel = runtime.turnId ? 'Thinking' : 'Idle';
+  const statusColor = runtime.turnId ? palette.accent : palette.mutedText;
 
   const handleSend = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || !session) return;
+
     setText('');
     try {
       await sendMessage(session.id, trimmed);
@@ -47,115 +67,212 @@ export default function SessionScreen() {
     }
   };
 
+  const actionBar = useMemo(
+    () => (
+      <XStack style={{ gap: 8 }}>
+        <Button
+          style={compactActionButtonStyle(palette)}
+          onPress={async () => {
+            if (!session) return;
+            try {
+              await resumeSession(session.id);
+            } catch (error) {
+              Alert.alert('Resume failed', error instanceof Error ? error.message : 'Unknown resume error');
+            }
+          }}
+          disabled={!session}
+        >
+          Resume
+        </Button>
+        <Button
+          style={compactActionButtonStyle(palette)}
+          onPress={async () => {
+            if (!session) return;
+            try {
+              await interruptSession(session.id);
+            } catch (error) {
+              Alert.alert('Interrupt failed', error instanceof Error ? error.message : 'Unknown interrupt error');
+            }
+          }}
+          disabled={!session || !runtime.turnId}
+        >
+          Interrupt
+        </Button>
+        <Button
+          style={compactActionButtonStyle(palette)}
+          onPress={async () => {
+            if (!session) return;
+            try {
+              await forkSession(session.id);
+            } catch (error) {
+              Alert.alert('Fork failed', error instanceof Error ? error.message : 'Unknown fork error');
+            }
+          }}
+          disabled={!session}
+        >
+          Fork
+        </Button>
+      </XStack>
+    ),
+    [forkSession, interruptSession, palette, resumeSession, runtime.turnId, session],
+  );
+
+  if (!session) {
+    return (
+      <YStack style={{ flex: 1, padding: 20, backgroundColor: palette.appBg }}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <Text style={{ color: palette.text, fontWeight: '700', fontSize: 18 }}>Session not found</Text>
+      </YStack>
+    );
+  }
+
   return (
-    <YStack style={{ flex: 1 }}>
-      <YStack style={{ padding: 16, gap: 8 }}>
-        <Text fontWeight="700" style={{ color: palette.text }}>
-          {session.title}
-        </Text>
-        <Paragraph size="$2" style={{ color: palette.mutedText }}>
-          threadId: {session.threadId}
-        </Paragraph>
-        <Paragraph size="$2" style={{ color: runtime.turnId ? palette.accent : palette.mutedText }}>
-          {runtime.turnId ? 'Thinking...' : 'Idle'}
-        </Paragraph>
-        <YStack style={{ gap: 8 }}>
-          <XStack style={{ gap: 8 }}>
-            <Button
-              style={{
-                flex: 1,
-                minWidth: 0,
-                borderWidth: 1,
-                borderColor: palette.border,
-                backgroundColor: palette.surfaceAlt,
-                color: palette.text,
-              }}
-              onPress={async () => {
-                try {
-                  await resumeSession(session.id);
-                } catch (error) {
-                  Alert.alert('Resume failed', error instanceof Error ? error.message : 'Unknown resume error');
-                }
-              }}
-            >
-              Resume
-            </Button>
-            <Button
-              style={{
-                flex: 1,
-                minWidth: 0,
-                borderWidth: 1,
-                borderColor: palette.border,
-                backgroundColor: palette.surfaceAlt,
-                color: palette.text,
-              }}
-              onPress={async () => {
-                try {
-                  await interruptSession(session.id);
-                } catch (error) {
-                  Alert.alert('Interrupt failed', error instanceof Error ? error.message : 'Unknown interrupt error');
-                }
-              }}
-              disabled={!runtime.turnId}
-            >
-              Interrupt
-            </Button>
-          </XStack>
+    <YStack style={{ flex: 1, backgroundColor: palette.appBg }}>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <YStack
+        style={{
+          paddingTop: insets.top + 8,
+          paddingHorizontal: 12,
+          paddingBottom: 10,
+          borderBottomWidth: 1,
+          borderBottomColor: palette.border,
+          backgroundColor: palette.headerBg,
+        }}
+      >
+        <XStack style={{ alignItems: 'center', gap: 8 }}>
           <Button
+            size="$3"
+            circular
+            onPress={() => router.back()}
             style={{
-              width: '100%',
-              minWidth: 0,
               borderWidth: 1,
               borderColor: palette.border,
-              backgroundColor: palette.surfaceAlt,
-              color: palette.text,
+              backgroundColor: palette.surface,
+              width: 36,
+              height: 36,
             }}
-            onPress={async () => {
-              try {
-                await forkSession(session.id);
-              } catch (error) {
-                Alert.alert('Fork failed', error instanceof Error ? error.message : 'Unknown fork error');
-              }
-            }}
+            accessibilityLabel="Back"
           >
-            Fork
+            <Feather name="arrow-left" size={16} color={palette.text} />
           </Button>
-        </YStack>
+
+          <YStack style={{ flex: 1 }}>
+            <Text numberOfLines={1} style={{ color: palette.text, fontSize: 16, fontWeight: '700' }}>
+              {session.title}
+            </Text>
+            <Paragraph numberOfLines={1} size="$2" style={{ color: palette.mutedText }}>
+              thread: {session.threadId}
+            </Paragraph>
+          </YStack>
+
+          <XStack style={{ alignItems: 'center', gap: 6 }}>
+            <View
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                backgroundColor: statusColor,
+              }}
+            />
+            <Text style={{ color: statusColor, fontSize: 12, fontWeight: '600' }}>{statusLabel}</Text>
+          </XStack>
+        </XStack>
       </YStack>
 
       <FlatList
-        data={runtime.cells}
+        ref={listRef}
+        data={visibleCells}
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 8 }}
+        contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 14, gap: 8, flexGrow: 1 }}
         renderItem={({ item }) => (
-          <CellRow key={item.id} cell={item} palette={palette} sessionId={session.id} onApproval={respondApproval} />
+          <CellRow cell={item} palette={palette} sessionId={session.id} onApproval={respondApproval} />
         )}
         ListEmptyComponent={
-          <View style={{ paddingVertical: 24 }}>
-            <Paragraph style={{ color: palette.mutedText }}>No messages yet.</Paragraph>
-          </View>
+          <YStack style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
+            <Text style={{ color: palette.mutedText }}>Start the conversation.</Text>
+          </YStack>
         }
       />
 
-      <YStack style={{ padding: 16, gap: 8, borderTopWidth: 1, borderTopColor: palette.border, backgroundColor: palette.surface }}>
-        <Input
-          value={text}
-          onChangeText={setText}
-          placeholder="Type message"
-          multiline={false}
-          returnKeyType="send"
-          submitBehavior="submit"
-          onSubmitEditing={() => void handleSend()}
-          autoCapitalize="sentences"
-          style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
-        />
-        <Paragraph size="$2" style={{ color: palette.mutedText }}>
-          Press Enter to send
-        </Paragraph>
-      </YStack>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <YStack
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: palette.border,
+            backgroundColor: palette.surface,
+            paddingHorizontal: 12,
+            paddingTop: 10,
+            paddingBottom: Math.max(insets.bottom, 8),
+            gap: 10,
+          }}
+        >
+          {actionBar}
+          <Separator borderColor={palette.border} />
+          <XStack style={{ alignItems: 'center', gap: 8 }}>
+            <Input
+              value={text}
+              onChangeText={setText}
+              placeholder="Type a message..."
+              multiline={false}
+              returnKeyType="send"
+              submitBehavior="submit"
+              onSubmitEditing={() => void handleSend()}
+              autoCapitalize="sentences"
+              style={{
+                flex: 1,
+                borderWidth: 1,
+                borderColor: palette.border,
+                backgroundColor: palette.surfaceAlt,
+                color: palette.text,
+              }}
+            />
+            <Button
+              onPress={() => void handleSend()}
+              disabled={!text.trim()}
+              style={{
+                borderWidth: 1,
+                borderColor: palette.accent,
+                backgroundColor: text.trim() ? palette.accent : palette.surfaceAlt,
+                color: '#ffffff',
+              }}
+            >
+              Send
+            </Button>
+          </XStack>
+        </YStack>
+      </KeyboardAvoidingView>
     </YStack>
   );
+}
+
+function coalesceAssistantCells(cells: TranscriptCell[]): TranscriptCell[] {
+  const visible = cells.filter((cell) => cell.type !== 'status');
+  const merged: TranscriptCell[] = [];
+  for (const cell of visible) {
+    const prev = merged[merged.length - 1];
+    if (cell.type === 'assistant' && prev?.type === 'assistant') {
+      prev.text = `${prev.text}${cell.text}`;
+      if (!prev.turnId && cell.turnId) {
+        prev.turnId = cell.turnId;
+      }
+      continue;
+    }
+    merged.push({ ...cell });
+  }
+  return merged;
+}
+
+function compactActionButtonStyle(palette: ChatGptPalette) {
+  return {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surfaceAlt,
+    color: palette.text,
+  } as const;
 }
 
 function CellRow(props: {
@@ -166,109 +283,147 @@ function CellRow(props: {
 }) {
   const { cell, palette } = props;
 
-  if (cell.type === 'approval') {
+  if (cell.type === 'user') {
     return (
-      <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
-        <Card.Header>
-          <Text fontWeight="700" style={{ color: palette.text }}>
-            Approval Required
-          </Text>
-          <Paragraph size="$2" style={{ color: palette.mutedText }}>
-            method: {cell.method}
-          </Paragraph>
-          {cell.reason ? (
-            <Paragraph size="$2" style={{ color: palette.mutedText }}>
-              reason: {cell.reason}
-            </Paragraph>
-          ) : null}
-          <Paragraph size="$2" style={{ color: palette.mutedText }}>
-            status: {cell.status}
-          </Paragraph>
-        </Card.Header>
-        {cell.status === 'pending' ? (
-          <Card.Footer>
-            <XStack style={{ gap: 8 }}>
-              <Button
-                style={{ backgroundColor: palette.accent, color: '#ffffff' }}
-                onPress={() => void props.onApproval(props.sessionId, cell.requestKey, true)}
-              >
-                Approve
-              </Button>
-              <Button
-                style={{ backgroundColor: palette.danger, color: '#ffffff' }}
-                onPress={() => void props.onApproval(props.sessionId, cell.requestKey, false)}
-              >
-                Deny
-              </Button>
-            </XStack>
-          </Card.Footer>
-        ) : null}
-      </Card>
-    );
-  }
-
-  if (cell.type === 'tool') {
-    return (
-      <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
-        <Card.Header>
-          <Text fontWeight="700" style={{ color: palette.text }}>
-            Tool: {cell.toolName}
-          </Text>
-          <Paragraph size="$2" style={{ color: palette.mutedText }}>
-            status: {cell.status}
-          </Paragraph>
-          {cell.title ? (
-            <Paragraph size="$2" style={{ color: palette.mutedText }}>
-              {cell.title}
-            </Paragraph>
-          ) : null}
-          {cell.output ? (
-            <Paragraph size="$2" style={{ color: palette.text }}>
-              {cell.output}
-            </Paragraph>
-          ) : null}
-        </Card.Header>
-      </Card>
+      <XStack style={{ justifyContent: 'flex-end' }}>
+        <YStack
+          style={{
+            maxWidth: '85%',
+            borderWidth: 1,
+            borderColor: palette.border,
+            borderRadius: 14,
+            backgroundColor: palette.userBubble,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+          }}
+        >
+          <Text style={{ color: palette.text, lineHeight: 20 }}>{cell.text}</Text>
+        </YStack>
+      </XStack>
     );
   }
 
   if (cell.type === 'assistant') {
     return (
-      <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.assistantBubble }}>
-        <Card.Header>
-          <Text style={{ color: palette.text }}>{cell.text}</Text>
-        </Card.Header>
-      </Card>
+      <XStack style={{ justifyContent: 'flex-start' }}>
+        <YStack
+          style={{
+            maxWidth: '90%',
+            borderWidth: 1,
+            borderColor: palette.border,
+            borderRadius: 14,
+            backgroundColor: palette.assistantBubble,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+          }}
+        >
+          <Text style={{ color: palette.text, lineHeight: 20 }}>{cell.text}</Text>
+        </YStack>
+      </XStack>
     );
   }
 
-  if (cell.type === 'user') {
+  if (cell.type === 'approval') {
     return (
-      <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.userBubble }}>
-        <Card.Header>
-          <Text style={{ color: palette.text }}>{cell.text}</Text>
-        </Card.Header>
-      </Card>
+      <YStack
+        style={{
+          borderWidth: 1,
+          borderColor: palette.border,
+          borderRadius: 12,
+          backgroundColor: palette.surface,
+          padding: 12,
+          gap: 6,
+        }}
+      >
+        <Text style={{ color: palette.text, fontWeight: '700' }}>Approval required</Text>
+        <Paragraph size="$2" style={{ color: palette.mutedText }}>
+          method: {cell.method}
+        </Paragraph>
+        {cell.reason ? (
+          <Paragraph size="$2" style={{ color: palette.mutedText }}>
+            reason: {cell.reason}
+          </Paragraph>
+        ) : null}
+        <Paragraph size="$2" style={{ color: palette.mutedText }}>
+          status: {cell.status}
+        </Paragraph>
+        {cell.status === 'pending' ? (
+          <XStack style={{ gap: 8, marginTop: 4 }}>
+            <Button
+              style={{ flex: 1, borderColor: palette.accent, backgroundColor: palette.accent, color: '#ffffff' }}
+              onPress={() => void props.onApproval(props.sessionId, cell.requestKey, true)}
+            >
+              Approve
+            </Button>
+            <Button
+              style={{ flex: 1, borderColor: palette.danger, backgroundColor: palette.danger, color: '#ffffff' }}
+              onPress={() => void props.onApproval(props.sessionId, cell.requestKey, false)}
+            >
+              Deny
+            </Button>
+          </XStack>
+        ) : null}
+      </YStack>
+    );
+  }
+
+  if (cell.type === 'tool') {
+    return (
+      <YStack
+        style={{
+          borderWidth: 1,
+          borderColor: palette.border,
+          borderRadius: 12,
+          backgroundColor: palette.surface,
+          padding: 12,
+          gap: 6,
+        }}
+      >
+        <Text style={{ color: palette.text, fontWeight: '700' }}>{cell.toolName}</Text>
+        <Paragraph size="$2" style={{ color: palette.mutedText }}>
+          status: {cell.status}
+        </Paragraph>
+        {cell.title ? (
+          <Paragraph size="$2" style={{ color: palette.mutedText }}>
+            {cell.title}
+          </Paragraph>
+        ) : null}
+        {cell.output ? <Text style={{ color: palette.text }}>{cell.output}</Text> : null}
+      </YStack>
     );
   }
 
   if (cell.type === 'error') {
     return (
-      <Card style={{ borderWidth: 1, borderColor: palette.danger, backgroundColor: palette.surface }}>
-        <Card.Header>
-          <Text style={{ color: palette.danger }}>{cell.text}</Text>
-        </Card.Header>
-      </Card>
+      <YStack
+        style={{
+          borderWidth: 1,
+          borderColor: palette.danger,
+          borderRadius: 12,
+          backgroundColor: palette.surface,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+        }}
+      >
+        <Text style={{ color: palette.danger }}>{cell.text}</Text>
+      </YStack>
     );
   }
 
   return (
-    <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
-      <Card.Header>
-        <Paragraph size="$2" style={{ color: palette.mutedText }}>
-          {cell.text}
-        </Paragraph>
-      </Card.Header>
-    </Card>
+    <YStack
+      style={{
+        borderWidth: 1,
+        borderColor: palette.border,
+        borderRadius: 12,
+        backgroundColor: palette.surface,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+      }}
+    >
+      <Paragraph size="$2" style={{ color: palette.mutedText }}>
+        {cell.text}
+      </Paragraph>
+    </YStack>
   );
 }

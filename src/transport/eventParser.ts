@@ -1,5 +1,7 @@
 import type { DaemonRpcNotification, DaemonRpcServerRequest } from './types';
 
+const STREAM_DEBUG = true;
+
 export type ParsedEvent =
   | { type: 'turn-started'; turnId: string }
   | { type: 'thread-started'; threadId: string }
@@ -21,6 +23,13 @@ export type ParsedEvent =
 export function parseNotification(notification: DaemonRpcNotification): ParsedEvent[] {
   const params = notification.params ?? {};
   const method = notification.method;
+  if (STREAM_DEBUG) {
+    console.log('[stream-debug][parser] notification', {
+      method,
+      turnId: asString((params.turn as Record<string, unknown> | undefined)?.id) ?? asString(params.turnId),
+      hasDelta: typeof params.delta === 'string' || typeof params.outputDelta === 'string',
+    });
+  }
 
   if (method === 'turn/started') {
     const turnId = asString((params.turn as Record<string, unknown> | undefined)?.id) ?? asString(params.turnId);
@@ -32,9 +41,22 @@ export function parseNotification(notification: DaemonRpcNotification): ParsedEv
     return threadId ? [{ type: 'thread-started', threadId }] : [];
   }
 
-  if (method === 'item/agentMessage/delta' || method === 'item/plan/delta') {
-    const delta = asString(params.delta);
-    const turnId = asString(params.turnId);
+  if (
+    method === 'item/agentMessage/delta' ||
+    method === 'item/plan/delta' ||
+    method === 'item/messageDelta' ||
+    method === 'item/agent_message_delta'
+  ) {
+    const delta = asString(params.delta) ?? asString(params.outputDelta);
+    const turnId = asString((params.turn as Record<string, unknown> | undefined)?.id) ?? asString(params.turnId);
+    if (STREAM_DEBUG) {
+      console.log('[stream-debug][parser] assistant-delta', {
+        method,
+        turnId,
+        deltaLen: delta?.length ?? 0,
+        deltaPreview: delta?.slice(0, 60),
+      });
+    }
     return delta ? [{ type: 'assistant-delta', delta, turnId }] : [];
   }
 

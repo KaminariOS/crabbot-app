@@ -8,6 +8,7 @@ import { parseNotification, parseServerRequest, type ParsedEvent } from '@/src/t
 const STORAGE_KEY = 'crabbot_android_state_v1';
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 30000;
+const STREAM_DEBUG = true;
 
 const initialState: AppState = {
   connections: [],
@@ -28,6 +29,7 @@ type AppAction =
   | { type: 'upsert-session'; payload: SessionRef }
   | { type: 'set-active-session'; payload: { connectionId: string; sessionId: string } }
   | { type: 'append-cell'; payload: { sessionId: string; cell: TranscriptCell } }
+  | { type: 'append-assistant-delta'; payload: { sessionId: string; turnId?: string; delta: string } }
   | { type: 'patch-cell'; payload: { sessionId: string; cellId: string; patch: Partial<TranscriptCell> } }
   | { type: 'set-turn'; payload: { sessionId: string; turnId: string | null } };
 
@@ -118,6 +120,71 @@ function reducer(state: AppState, action: AppAction): AppState {
           [action.payload.sessionId]: {
             ...runtime,
             cells: [...runtime.cells, action.payload.cell],
+          },
+        },
+      };
+    }
+    case 'append-assistant-delta': {
+      const runtime = state.runtimes[action.payload.sessionId] ?? { turnId: null, cells: [] };
+      const lastCell = runtime.cells[runtime.cells.length - 1];
+      const effectiveTurnId = action.payload.turnId ?? runtime.turnId ?? undefined;
+      const shouldMergeWithLast =
+        lastCell?.type === 'assistant' &&
+        (effectiveTurnId === undefined ||
+          lastCell.turnId === effectiveTurnId ||
+          lastCell.turnId === undefined);
+
+      if (shouldMergeWithLast) {
+        if (STREAM_DEBUG) {
+          console.log('[stream-debug][reducer] merge assistant delta', {
+            sessionId: action.payload.sessionId,
+            payloadTurnId: action.payload.turnId,
+            runtimeTurnId: runtime.turnId,
+            lastCellId: lastCell?.id,
+            lastCellTurnId: lastCell?.type === 'assistant' ? lastCell.turnId : undefined,
+            deltaLen: action.payload.delta.length,
+          });
+        }
+        return {
+          ...state,
+          runtimes: {
+            ...state.runtimes,
+            [action.payload.sessionId]: {
+              ...runtime,
+              cells: runtime.cells.map((cell) =>
+                cell.id === lastCell.id ? { ...cell, text: `${cell.text}${action.payload.delta}` } : cell,
+              ),
+            },
+          },
+        };
+      }
+
+      if (STREAM_DEBUG) {
+        console.log('[stream-debug][reducer] append new assistant cell', {
+          sessionId: action.payload.sessionId,
+          payloadTurnId: action.payload.turnId,
+          runtimeTurnId: runtime.turnId,
+          effectiveTurnId,
+          deltaLen: action.payload.delta.length,
+          previousCellType: lastCell?.type,
+        });
+      }
+      return {
+        ...state,
+        runtimes: {
+          ...state.runtimes,
+          [action.payload.sessionId]: {
+            ...runtime,
+            cells: [
+              ...runtime.cells,
+              {
+                id: makeId(),
+                type: 'assistant',
+                text: action.payload.delta,
+                createdAt: Date.now(),
+                turnId: effectiveTurnId,
+              },
+            ],
           },
         },
       };
@@ -240,32 +307,28 @@ export function AppProvider(props: { children: React.ReactNode }) {
     }
 
     if (event.type === 'assistant-delta') {
-      const runtime = currentState.runtimes[session.id] ?? { turnId: null, cells: [] };
-      const lastCell = runtime.cells[runtime.cells.length - 1];
-      if (lastCell?.type === 'assistant') {
-        dispatch({
-          type: 'patch-cell',
-          payload: {
-            sessionId: session.id,
-            cellId: lastCell.id,
-            patch: { text: `${lastCell.text}${event.delta}` },
-          },
-        });
-      } else {
-        dispatch({
-          type: 'append-cell',
-          payload: {
-            sessionId: session.id,
-            cell: {
-              id: makeId(),
-              type: 'assistant',
-              text: event.delta,
-              createdAt: Date.now(),
-              turnId: event.turnId,
-            },
-          },
+      if (STREAM_DEBUG) {
+        const runtime = currentState.runtimes[session.id] ?? { turnId: null, cells: [] };
+        const lastCell = runtime.cells[runtime.cells.length - 1];
+        console.log('[stream-debug][apply] assistant-delta', {
+          connectionId,
+          sessionId: session.id,
+          eventTurnId: event.turnId,
+          runtimeTurnId: runtime.turnId,
+          lastCellType: lastCell?.type,
+          lastCellTurnId: lastCell?.type === 'assistant' ? lastCell.turnId : undefined,
+          deltaLen: event.delta.length,
+          deltaPreview: event.delta.slice(0, 60),
         });
       }
+      dispatch({
+        type: 'append-assistant-delta',
+        payload: {
+          sessionId: session.id,
+          turnId: event.turnId,
+          delta: event.delta,
+        },
+      });
       return;
     }
 
