@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert } from 'react-native';
-import { Button, Card, Input, Paragraph, ScrollView, Text, XStack, YStack } from 'tamagui';
+import { Alert, FlatList, View } from 'react-native';
+import { Button, Card, Input, Paragraph, Text, XStack, YStack } from 'tamagui';
 
 import type { TranscriptCell } from '@/src/domain/types';
 import { useAppState } from '@/src/state/AppContext';
@@ -36,6 +36,17 @@ export default function SessionScreen() {
     );
   }
 
+  const handleSend = async () => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setText('');
+    try {
+      await sendMessage(session.id, trimmed);
+    } catch (error) {
+      Alert.alert('Send failed', error instanceof Error ? error.message : 'Unknown send error');
+    }
+  };
+
   return (
     <YStack style={{ flex: 1 }}>
       <YStack style={{ padding: 16, gap: 8 }}>
@@ -44,6 +55,9 @@ export default function SessionScreen() {
         </Text>
         <Paragraph size="$2" style={{ color: palette.mutedText }}>
           threadId: {session.threadId}
+        </Paragraph>
+        <Paragraph size="$2" style={{ color: runtime.turnId ? palette.accent : palette.mutedText }}>
+          {runtime.turnId ? 'Thinking...' : 'Idle'}
         </Paragraph>
         <XStack style={{ gap: 8, flexWrap: 'wrap' }}>
           <Button
@@ -86,43 +100,36 @@ export default function SessionScreen() {
         </XStack>
       </YStack>
 
-      <ScrollView>
-        <YStack style={{ padding: 16, gap: 8, paddingBottom: 48 }}>
-          {runtime.cells.length === 0 ? (
+      <FlatList
+        data={runtime.cells}
+        keyExtractor={(item) => item.id}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 8 }}
+        renderItem={({ item }) => (
+          <CellRow key={item.id} cell={item} palette={palette} sessionId={session.id} onApproval={respondApproval} />
+        )}
+        ListEmptyComponent={
+          <View style={{ paddingVertical: 24 }}>
             <Paragraph style={{ color: palette.mutedText }}>No messages yet.</Paragraph>
-          ) : (
-            runtime.cells.map((cell) => (
-              <CellRow key={cell.id} cell={cell} palette={palette} sessionId={session.id} onApproval={respondApproval} />
-            ))
-          )}
-        </YStack>
-      </ScrollView>
+          </View>
+        }
+      />
 
       <YStack style={{ padding: 16, gap: 8, borderTopWidth: 1, borderTopColor: palette.border, backgroundColor: palette.surface }}>
         <Input
           value={text}
           onChangeText={setText}
           placeholder="Type message"
-          multiline
-          numberOfLines={3}
+          multiline={false}
+          returnKeyType="send"
+          submitBehavior="submit"
+          onSubmitEditing={() => void handleSend()}
           autoCapitalize="sentences"
           style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
         />
-        <Button
-          style={{ backgroundColor: palette.accent, color: '#ffffff' }}
-          onPress={async () => {
-            const trimmed = text.trim();
-            if (!trimmed) return;
-            setText('');
-            try {
-              await sendMessage(session.id, trimmed);
-            } catch (error) {
-              Alert.alert('Send failed', error instanceof Error ? error.message : 'Unknown send error');
-            }
-          }}
-        >
-          Send
-        </Button>
+        <Paragraph size="$2" style={{ color: palette.mutedText }}>
+          Press Enter to send
+        </Paragraph>
       </YStack>
     </YStack>
   );

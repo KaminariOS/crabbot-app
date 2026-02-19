@@ -41,7 +41,7 @@ function RootContent() {
               headerTitleStyle: { color: palette.headerText },
             }}
           >
-            <Stack.Screen name="index" options={{ title: 'Connections' }} />
+            <Stack.Screen name="index" options={{ title: 'Terminals' }} />
             <Stack.Screen name="settings" options={{ title: 'Settings' }} />
             <Stack.Screen name="connection/new" options={{ title: 'Add Connection' }} />
             <Stack.Screen name="connection/edit/[connectionId]" options={{ title: 'Edit Connection' }} />

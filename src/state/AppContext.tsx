@@ -158,6 +158,7 @@ type AppContextType = {
   connectConnection: (connectionId: string) => Promise<void>;
   disconnectConnection: (connectionId: string) => void;
   createSession: (connectionId: string) => Promise<SessionRef>;
+  resumeLatestSession: (connectionId: string) => Promise<SessionRef>;
   discoverSessions: (connectionId: string) => Promise<void>;
   forkSession: (sessionId: string) => Promise<SessionRef | null>;
   resumeSession: (sessionId: string) => Promise<void>;
@@ -635,6 +636,36 @@ export function AppProvider(props: { children: React.ReactNode }) {
     [ensureClient],
   );
 
+  const resumeLatestSession = useCallback(
+    async (connectionId: string): Promise<SessionRef> => {
+      const latestForConnection = (): SessionRef | null => {
+        const candidates = stateRef.current.sessions
+          .filter((session) => session.connectionId === connectionId)
+          .sort((a, b) => {
+            const aTs = Math.max(a.updatedAt, a.lastActivityAt);
+            const bTs = Math.max(b.updatedAt, b.lastActivityAt);
+            return bTs - aTs;
+          });
+        return candidates[0] ?? null;
+      };
+
+      let target = latestForConnection();
+      if (!target) {
+        await discoverSessions(connectionId);
+        target = latestForConnection();
+      }
+
+      if (!target) {
+        throw new Error('No sessions to resume for this connection');
+      }
+
+      await resumeSession(target.id);
+      dispatch({ type: 'set-active-session', payload: { connectionId, sessionId: target.id } });
+      return target;
+    },
+    [discoverSessions, resumeSession],
+  );
+
   const sendMessage = useCallback(
     async (sessionId: string, text: string) => {
       const session = stateRef.current.sessions.find((s) => s.id === sessionId);
@@ -751,6 +782,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
       connectConnection,
       disconnectConnection,
       createSession,
+      resumeLatestSession,
       discoverSessions,
       forkSession,
       resumeSession,
@@ -767,6 +799,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
       connectConnection,
       disconnectConnection,
       createSession,
+      resumeLatestSession,
       discoverSessions,
       forkSession,
       resumeSession,

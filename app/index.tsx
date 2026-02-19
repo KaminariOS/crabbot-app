@@ -1,5 +1,6 @@
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import React from 'react';
+import { Alert, Modal, Pressable, View } from 'react-native';
 import { Button, Card, Paragraph, ScrollView, Text, XStack, YStack } from 'tamagui';
 
 import { useAppState } from '@/src/state/AppContext';
@@ -7,71 +8,177 @@ import { useThemeSettings } from '@/src/state/ThemeContext';
 import { getChatGptPalette } from '@/src/ui/chatgpt';
 
 export default function ConnectionsScreen() {
-  const { state, connectConnection, disconnectConnection, removeConnection } = useAppState();
+  const router = useRouter();
+  const { state, connectConnection, disconnectConnection, removeConnection, resumeLatestSession } = useAppState();
   const { resolvedTheme } = useThemeSettings();
   const palette = getChatGptPalette(resolvedTheme);
+  const [menuConnectionId, setMenuConnectionId] = React.useState<string | null>(null);
+  const menuConnection = menuConnectionId ? state.connections.find((connection) => connection.id === menuConnectionId) ?? null : null;
 
   return (
     <YStack flex={1}>
       <ScrollView>
         <YStack style={{ padding: 16, gap: 12, paddingBottom: 96 }}>
           {state.connections.length === 0 ? (
-            <Paragraph style={{ color: palette.mutedText }}>No connections yet. Add one by QR scan or manual URL input.</Paragraph>
+            <Paragraph style={{ color: palette.mutedText }}>No terminals yet. Add one by QR scan or manual URL input.</Paragraph>
           ) : (
             state.connections.map((connection) => (
               <Card key={connection.id} style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
                 <Card.Header style={{ gap: 4 }}>
-                  <Text fontWeight="700" style={{ color: palette.text }}>
-                    {connection.name}
-                  </Text>
-                  <Paragraph size="$2" style={{ color: palette.mutedText }}>
-                    {connection.websocketUrl}
-                  </Paragraph>
-                  <Paragraph size="$2" style={{ color: palette.mutedText }}>
-                    Status: {connection.status}
-                  </Paragraph>
-                  {connection.errorMessage ? <Paragraph style={{ color: palette.danger }}>{connection.errorMessage}</Paragraph> : null}
-                </Card.Header>
-                <Card.Footer>
-                  <XStack style={{ gap: 8, flexWrap: 'wrap' }}>
-                    <Link href={`/connection/${connection.id}` as never} asChild>
-                      <Button style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}>
-                        Open
-                      </Button>
-                    </Link>
-                    <Link href={`/connection/edit/${connection.id}` as never} asChild>
-                      <Button style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}>
-                        Edit
-                      </Button>
-                    </Link>
-                    {connection.status === 'connected' || connection.status === 'connecting' ? (
-                      <Button
-                        onPress={() => disconnectConnection(connection.id)}
-                        style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
-                      >
-                        Disconnect
-                      </Button>
-                    ) : (
-                      <Button
-                        onPress={() => void connectConnection(connection.id)}
-                        style={{ backgroundColor: palette.accent, color: '#ffffff' }}
-                      >
-                        Connect
-                      </Button>
-                    )}
-                    <Button
-                      style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
-                      onPress={() => removeConnection(connection.id)}
+                  <XStack style={{ alignItems: 'center', gap: 12 }}>
+                    <View
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: palette.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: palette.border,
+                      }}
                     >
-                      Delete
+                      <Text fontWeight="700" style={{ color: palette.text }}>
+                        {initials(connection.name)}
+                      </Text>
+                    </View>
+                    <YStack style={{ flex: 1, gap: 2 }}>
+                      <Text fontWeight="700" style={{ color: palette.text }}>
+                        {connection.name}
+                      </Text>
+                      <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                        {safeHost(connection.websocketUrl) ?? connection.websocketUrl}
+                      </Paragraph>
+                      <XStack style={{ alignItems: 'center', gap: 6 }}>
+                        <View
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 4,
+                            backgroundColor: statusColor(connection.status),
+                          }}
+                        />
+                        <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                          {statusLabel(connection.status)} • {sessionCountLabel(state.sessions, connection.id)}
+                        </Paragraph>
+                      </XStack>
+                    </YStack>
+                    <Button
+                      accessibilityLabel={`Actions for ${connection.name}`}
+                      onPress={() => setMenuConnectionId(connection.id)}
+                      style={{
+                        minWidth: 40,
+                        height: 40,
+                        borderWidth: 1,
+                        borderColor: palette.border,
+                        backgroundColor: palette.surfaceAlt,
+                        color: palette.text,
+                        paddingHorizontal: 0,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ color: palette.text, fontSize: 26, lineHeight: 26 }}>⋮</Text>
                     </Button>
                   </XStack>
-                </Card.Footer>
+                  {connection.errorMessage ? <Paragraph style={{ color: palette.danger }}>{connection.errorMessage}</Paragraph> : null}
+                </Card.Header>
               </Card>
             ))
           )}
         </YStack>
       </ScrollView>
+
+      <Modal visible={menuConnection != null} transparent animationType="fade" onRequestClose={() => setMenuConnectionId(null)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.38)', justifyContent: 'flex-end' }}
+          onPress={() => setMenuConnectionId(null)}
+        >
+          <Pressable
+            style={{
+              marginHorizontal: 16,
+              marginBottom: 112,
+              borderRadius: 16,
+              backgroundColor: palette.surface,
+              borderWidth: 1,
+              borderColor: palette.border,
+              padding: 12,
+              gap: 8,
+            }}
+            onPress={(event) => event.stopPropagation()}
+          >
+            {menuConnection ? (
+              <>
+                <Text style={{ color: palette.mutedText, fontSize: 13, paddingHorizontal: 6, paddingTop: 4 }}>
+                  {menuConnection.name}
+                </Text>
+                <Button
+                  style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
+                  onPress={() => {
+                    setMenuConnectionId(null);
+                    router.push(`/connection/${menuConnection.id}` as never);
+                  }}
+                >
+                  Open
+                </Button>
+                <Button
+                  style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
+                  onPress={() => {
+                    setMenuConnectionId(null);
+                    router.push(`/connection/edit/${menuConnection.id}` as never);
+                  }}
+                >
+                  Edit
+                </Button>
+                <Button
+                  style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
+                  onPress={async () => {
+                    setMenuConnectionId(null);
+                    try {
+                      const resumed = await resumeLatestSession(menuConnection.id);
+                      router.push(`/session/${resumed.id}` as never);
+                    } catch (error) {
+                      Alert.alert('Resume failed', error instanceof Error ? error.message : 'Unknown resume error');
+                    }
+                  }}
+                >
+                  Resume
+                </Button>
+                {menuConnection.status === 'connected' || menuConnection.status === 'connecting' ? (
+                  <Button
+                    style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
+                    onPress={() => {
+                      setMenuConnectionId(null);
+                      disconnectConnection(menuConnection.id);
+                    }}
+                  >
+                    Disconnect
+                  </Button>
+                ) : (
+                  <Button
+                    style={{ backgroundColor: palette.accent, color: '#ffffff' }}
+                    onPress={() => {
+                      setMenuConnectionId(null);
+                      void connectConnection(menuConnection.id);
+                    }}
+                  >
+                    Connect
+                  </Button>
+                )}
+                <Button
+                  style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
+                  onPress={() => {
+                    setMenuConnectionId(null);
+                    removeConnection(menuConnection.id);
+                  }}
+                >
+                  Delete
+                </Button>
+              </>
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Link href={'/connection/new' as never} asChild>
         <Button
@@ -110,4 +217,56 @@ export default function ConnectionsScreen() {
       </Link>
     </YStack>
   );
+}
+
+function safeHost(url: string): string | null {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+}
+
+function initials(name: string): string {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return 'T';
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase();
+}
+
+function statusColor(status: 'connected' | 'connecting' | 'disconnected' | 'error'): string {
+  switch (status) {
+    case 'connected':
+      return '#10a37f';
+    case 'connecting':
+      return '#f59e0b';
+    case 'error':
+      return '#ef4444';
+    default:
+      return '#9ca3af';
+  }
+}
+
+function statusLabel(status: 'connected' | 'connecting' | 'disconnected' | 'error'): string {
+  switch (status) {
+    case 'connected':
+      return 'Connected';
+    case 'connecting':
+      return 'Connecting';
+    case 'error':
+      return 'Error';
+    default:
+      return 'Disconnected';
+  }
+}
+
+function sessionCountLabel(
+  sessions: { connectionId: string }[],
+  connectionId: string,
+): string {
+  const count = sessions.filter((session) => session.connectionId === connectionId).length;
+  return `${count} ${count === 1 ? 'session' : 'sessions'}`;
 }
