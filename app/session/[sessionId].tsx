@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, KeyboardAvoidingView, Platform, View } from 'react-native';
+import { Alert, FlatList, Keyboard, KeyboardAvoidingView, Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Input, Paragraph, Separator, Text, XStack, YStack } from 'tamagui';
 
@@ -22,6 +22,7 @@ export default function SessionScreen() {
   const { resolvedTheme } = useThemeSettings();
   const palette = getChatGptPalette(resolvedTheme);
   const [text, setText] = useState('');
+  const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
 
   const listRef = useRef<FlatList<TranscriptCell> | null>(null);
 
@@ -51,6 +52,22 @@ export default function SessionScreen() {
   useEffect(() => {
     listRef.current?.scrollToEnd({ animated: true });
   }, [visibleCells.length]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const onShow = Keyboard.addListener('keyboardDidShow', (event) => {
+      setAndroidKeyboardHeight(event.endCoordinates.height);
+    });
+    const onHide = Keyboard.addListener('keyboardDidHide', () => {
+      setAndroidKeyboardHeight(0);
+    });
+
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
 
   const statusLabel = runtime.turnId ? 'Thinking' : 'Idle';
   const statusColor = runtime.turnId ? palette.accent : palette.mutedText;
@@ -196,7 +213,11 @@ export default function SessionScreen() {
         }
       />
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView
+        behavior={Platform.select({ ios: 'padding', android: 'height' })}
+        keyboardVerticalOffset={0}
+        style={{ marginBottom: Platform.OS === 'android' ? androidKeyboardHeight : 0 }}
+      >
         <YStack
           style={{
             borderTopWidth: 1,
