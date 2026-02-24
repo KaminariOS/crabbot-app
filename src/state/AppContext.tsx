@@ -270,6 +270,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
   const reconnectAttemptsRef = useRef(new Map<string, number>());
   const autoReconnectEnabledRef = useRef(new Set<string>());
   const notificationTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const lastAgentMessageInTurnRef = useRef(new Map<string, string>());
 
   useEffect(() => {
     stateRef.current = state;
@@ -349,6 +350,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
     }
 
     if (event.type === 'turn-started') {
+      lastAgentMessageInTurnRef.current.delete(session.id);
       dispatch({ type: 'set-turn', payload: { sessionId: session.id, turnId: event.turnId } });
       return;
     }
@@ -402,10 +404,16 @@ export function AppProvider(props: { children: React.ReactNode }) {
 
     if (event.type === 'assistant-message') {
       const runtime = currentState.runtimes[session.id] ?? { turnId: null, cells: [] };
-      const lastCell = runtime.cells[runtime.cells.length - 1];
-      if (lastCell?.type === 'assistant' && lastCell.text === event.text) {
+      const lastAssistantText = [...runtime.cells]
+        .reverse()
+        .find((cell) => cell.type === 'assistant' && cell.text.trim().length > 0);
+      if (
+        lastAgentMessageInTurnRef.current.get(session.id) === event.text ||
+        (lastAssistantText?.type === 'assistant' && lastAssistantText.text === event.text)
+      ) {
         return;
       }
+      lastAgentMessageInTurnRef.current.set(session.id, event.text);
       dispatch({
         type: 'append-cell',
         payload: {
@@ -422,6 +430,15 @@ export function AppProvider(props: { children: React.ReactNode }) {
     }
 
     if (event.type === 'turn-completed') {
+      const runtime = currentState.runtimes[session.id] ?? { turnId: null, cells: [] };
+      const lastAssistantText = [...runtime.cells]
+        .reverse()
+        .find((cell) => cell.type === 'assistant' && cell.text.trim().length > 0);
+      if (lastAssistantText?.type === 'assistant') {
+        lastAgentMessageInTurnRef.current.set(session.id, lastAssistantText.text);
+      } else {
+        lastAgentMessageInTurnRef.current.delete(session.id);
+      }
       dispatch({ type: 'set-turn', payload: { sessionId: session.id, turnId: null } });
       dispatch({
         type: 'append-cell',
@@ -446,6 +463,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
     }
 
     if (event.type === 'turn-aborted') {
+      lastAgentMessageInTurnRef.current.delete(session.id);
       dispatch({ type: 'set-turn', payload: { sessionId: session.id, turnId: null } });
       dispatch({
         type: 'append-cell',
