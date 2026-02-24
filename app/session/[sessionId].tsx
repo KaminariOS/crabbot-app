@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Keyboard, KeyboardAvoidingView, Platform, View } from 'react-native';
+import Markdown from 'react-native-markdown-display';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Input, Paragraph, Separator, Text, XStack, YStack } from 'tamagui';
 
@@ -292,6 +293,7 @@ function CellRow(props: {
   onApproval: (sessionId: string, requestKey: string, approve: boolean) => Promise<void>;
 }) {
   const { cell, palette } = props;
+  const markdownStyle = useMemo(() => getMarkdownStyle(palette), [palette]);
 
   if (cell.type === 'user') {
     return (
@@ -327,7 +329,7 @@ function CellRow(props: {
             paddingVertical: 10,
           }}
         >
-          <Text style={{ color: palette.text, lineHeight: 20 }}>{cell.text}</Text>
+          <Markdown style={markdownStyle}>{cell.text}</Markdown>
         </YStack>
       </XStack>
     );
@@ -436,4 +438,80 @@ function CellRow(props: {
       </Paragraph>
     </YStack>
   );
+}
+
+function getMarkdownStyle(palette: ChatGptPalette) {
+  return {
+    body: {
+      color: palette.text,
+      marginTop: 0,
+      marginBottom: 0,
+    },
+    paragraph: {
+      color: palette.text,
+      lineHeight: 20,
+      marginTop: 0,
+      marginBottom: 8,
+    },
+    code_inline: {
+      color: palette.text,
+      backgroundColor: palette.surfaceAlt,
+      borderWidth: 1,
+      borderColor: palette.border,
+      borderRadius: 6,
+      paddingHorizontal: 4,
+      paddingVertical: 1,
+    },
+    code_block: {
+      color: palette.text,
+      backgroundColor: palette.surfaceAlt,
+      borderWidth: 1,
+      borderColor: palette.border,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+    },
+    fence: {
+      color: palette.text,
+      backgroundColor: palette.surfaceAlt,
+      borderWidth: 1,
+      borderColor: palette.border,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+    },
+    bullet_list: {
+      marginTop: 0,
+      marginBottom: 8,
+    },
+    ordered_list: {
+      marginTop: 0,
+      marginBottom: 8,
+    },
+    heading1: {
+      color: palette.text,
+      marginTop: 0,
+      marginBottom: 8,
+    },
+    heading2: {
+      color: palette.text,
+      marginTop: 0,
+      marginBottom: 8,
+    },
+    heading3: {
+      color: palette.text,
+      marginTop: 0,
+      marginBottom: 8,
+    },
+    blockquote: {
+      borderLeftWidth: 3,
+      borderLeftColor: palette.border,
+      paddingLeft: 10,
+      marginLeft: 0,
+      color: palette.mutedText,
+    },
+    link: {
+      color: palette.accent,
+    },
+  };
 }
