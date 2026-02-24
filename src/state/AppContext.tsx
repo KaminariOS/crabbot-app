@@ -8,6 +8,7 @@ import { parseNotification, parseServerRequest, type ParsedEvent } from '@/src/t
 const STORAGE_KEY = 'crabbot_android_state_v1';
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 30000;
+const THREAD_DISCOVERY_INTERVAL_MS = 15000;
 const STREAM_DEBUG = true;
 
 const initialState: AppState = {
@@ -269,6 +270,8 @@ export function AppProvider(props: { children: React.ReactNode }) {
   const reconnectTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const reconnectAttemptsRef = useRef(new Map<string, number>());
   const autoReconnectEnabledRef = useRef(new Set<string>());
+  const sessionDiscoveryInFlightRef = useRef(new Set<string>());
+  const lastSessionDiscoveryAtRef = useRef(new Map<string, number>());
   const notificationTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const lastAgentMessageInTurnRef = useRef(new Map<string, string>());
 
@@ -755,6 +758,8 @@ export function AppProvider(props: { children: React.ReactNode }) {
   const removeConnection = useCallback((connectionId: string) => {
     autoReconnectEnabledRef.current.delete(connectionId);
     resetReconnectState(connectionId);
+    sessionDiscoveryInFlightRef.current.delete(connectionId);
+    lastSessionDiscoveryAtRef.current.delete(connectionId);
     clientsRef.current.get(connectionId)?.disconnect();
     clientsRef.current.delete(connectionId);
     dispatch({ type: 'remove-connection', payload: { connectionId } });
@@ -763,6 +768,8 @@ export function AppProvider(props: { children: React.ReactNode }) {
   const disconnectConnection = useCallback((connectionId: string) => {
     autoReconnectEnabledRef.current.delete(connectionId);
     resetReconnectState(connectionId);
+    sessionDiscoveryInFlightRef.current.delete(connectionId);
+    lastSessionDiscoveryAtRef.current.delete(connectionId);
     clientsRef.current.get(connectionId)?.disconnect();
     clientsRef.current.delete(connectionId);
     dispatch({ type: 'set-connection-status', payload: { connectionId, status: 'disconnected' } });
@@ -773,6 +780,8 @@ export function AppProvider(props: { children: React.ReactNode }) {
     const reconnectTimers = reconnectTimersRef.current;
     const reconnectAttempts = reconnectAttemptsRef.current;
     const autoReconnectEnabled = autoReconnectEnabledRef.current;
+    const sessionDiscoveryInFlight = sessionDiscoveryInFlightRef.current;
+    const lastSessionDiscoveryAt = lastSessionDiscoveryAtRef.current;
     const clients = clientsRef.current;
 
     return () => {
@@ -786,6 +795,8 @@ export function AppProvider(props: { children: React.ReactNode }) {
       reconnectTimers.clear();
       reconnectAttempts.clear();
       autoReconnectEnabled.clear();
+      sessionDiscoveryInFlight.clear();
+      lastSessionDiscoveryAt.clear();
       for (const client of clients.values()) {
         client.disconnect('provider-unmount');
       }
@@ -879,6 +890,53 @@ export function AppProvider(props: { children: React.ReactNode }) {
     },
     [ensureClient],
   );
+
+  const refreshSessionsForConnection = useCallback(
+    async (connectionId: string, options?: { force?: boolean }) => {
+      if (sessionDiscoveryInFlightRef.current.has(connectionId)) {
+        return;
+      }
+
+      const now = Date.now();
+      const lastRefreshedAt = lastSessionDiscoveryAtRef.current.get(connectionId) ?? 0;
+      if (!options?.force && now - lastRefreshedAt < THREAD_DISCOVERY_INTERVAL_MS) {
+        return;
+      }
+
+      sessionDiscoveryInFlightRef.current.add(connectionId);
+      try {
+        await discoverSessions(connectionId);
+        lastSessionDiscoveryAtRef.current.set(connectionId, Date.now());
+      } catch (error) {
+        console.log('[thread] auto discover failed', { connectionId, error });
+      } finally {
+        sessionDiscoveryInFlightRef.current.delete(connectionId);
+      }
+    },
+    [discoverSessions],
+  );
+
+  useEffect(() => {
+    const connectedConnectionIds = state.connections
+      .filter((connection) => connection.status === 'connected')
+      .map((connection) => connection.id);
+    for (const connectionId of connectedConnectionIds) {
+      void refreshSessionsForConnection(connectionId);
+    }
+  }, [refreshSessionsForConnection, state.connections]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const connectedConnectionIds = stateRef.current.connections
+        .filter((connection) => connection.status === 'connected')
+        .map((connection) => connection.id);
+      for (const connectionId of connectedConnectionIds) {
+        void refreshSessionsForConnection(connectionId);
+      }
+    }, THREAD_DISCOVERY_INTERVAL_MS);
+
+    return () => clearInterval(timer);
+  }, [refreshSessionsForConnection]);
 
   const forkSession = useCallback(
     async (sessionId: string): Promise<SessionRef | null> => {
