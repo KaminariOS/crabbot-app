@@ -18,12 +18,36 @@ export default function ConnectionsScreen() {
     resumeLatestSession,
     resumeSession,
     setActiveSession,
+    getSessionLastUserMessage,
   } = useAppState();
   const { resolvedTheme } = useThemeSettings();
   const palette = getChatGptPalette(resolvedTheme);
   const [menuConnectionId, setMenuConnectionId] = React.useState<string | null>(null);
   const [expandedConnectionIds, setExpandedConnectionIds] = React.useState<Record<string, boolean>>({});
+  const [lastUserMessageBySession, setLastUserMessageBySession] = React.useState<Record<string, string | null>>({});
   const menuConnection = menuConnectionId ? state.connections.find((connection) => connection.id === menuConnectionId) ?? null : null;
+
+  React.useEffect(() => {
+    const expandedConnectionIdsList = Object.entries(expandedConnectionIds)
+      .filter(([, expanded]) => expanded)
+      .map(([connectionId]) => connectionId);
+    const sessionsToHydrate = state.sessions.filter(
+      (session) => expandedConnectionIdsList.includes(session.connectionId) && lastUserMessageBySession[session.id] === undefined,
+    );
+    if (sessionsToHydrate.length === 0) {
+      return;
+    }
+    void Promise.all(
+      sessionsToHydrate.map(async (session) => {
+        try {
+          const message = await getSessionLastUserMessage(session.id);
+          setLastUserMessageBySession((current) => ({ ...current, [session.id]: message }));
+        } catch {
+          setLastUserMessageBySession((current) => ({ ...current, [session.id]: null }));
+        }
+      }),
+    );
+  }, [expandedConnectionIds, getSessionLastUserMessage, lastUserMessageBySession, state.sessions]);
 
   return (
     <YStack flex={1}>
@@ -143,6 +167,9 @@ export default function ConnectionsScreen() {
                                 </Text>
                                 <Paragraph size="$2" style={{ color: palette.mutedText }}>
                                   threadId: {session.threadId}
+                                </Paragraph>
+                                <Paragraph size="$2" numberOfLines={1} style={{ color: palette.mutedText }}>
+                                  last user: {lastUserMessageBySession[session.id] ?? 'loading...'}
                                 </Paragraph>
                                 <Paragraph size="$2" style={{ color: palette.mutedText }}>
                                   state: {session.state}

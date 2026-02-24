@@ -21,14 +21,33 @@ export default function ConnectionDetailScreen() {
     discoverSessions,
     resumeSession,
     setActiveSession,
+    getSessionLastUserMessage,
   } = useAppState();
   const { resolvedTheme } = useThemeSettings();
   const palette = getChatGptPalette(resolvedTheme);
+  const [lastUserMessageBySession, setLastUserMessageBySession] = React.useState<Record<string, string | null>>({});
 
   const connection = state.connections.find((item) => item.id === connectionId);
   const sessions = state.sessions
     .filter((session) => session.connectionId === connectionId)
     .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  React.useEffect(() => {
+    const sessionsToHydrate = sessions.filter((session) => lastUserMessageBySession[session.id] === undefined);
+    if (sessionsToHydrate.length === 0) {
+      return;
+    }
+    void Promise.all(
+      sessionsToHydrate.map(async (session) => {
+        try {
+          const message = await getSessionLastUserMessage(session.id);
+          setLastUserMessageBySession((current) => ({ ...current, [session.id]: message }));
+        } catch {
+          setLastUserMessageBySession((current) => ({ ...current, [session.id]: null }));
+        }
+      }),
+    );
+  }, [getSessionLastUserMessage, lastUserMessageBySession, sessions]);
 
   if (!connection) {
     return (
@@ -181,6 +200,9 @@ export default function ConnectionDetailScreen() {
                   </Text>
                   <Paragraph size="$2" style={{ color: palette.mutedText }}>
                     threadId: {session.threadId}
+                  </Paragraph>
+                  <Paragraph size="$2" numberOfLines={1} style={{ color: palette.mutedText }}>
+                    last user: {lastUserMessageBySession[session.id] ?? 'loading...'}
                   </Paragraph>
                   <Paragraph size="$2" style={{ color: palette.mutedText }}>
                     state: {session.state}
