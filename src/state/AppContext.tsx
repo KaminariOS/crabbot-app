@@ -31,7 +31,8 @@ type AppAction =
   | { type: 'append-cell'; payload: { sessionId: string; cell: TranscriptCell } }
   | { type: 'append-assistant-delta'; payload: { sessionId: string; turnId?: string; delta: string } }
   | { type: 'patch-cell'; payload: { sessionId: string; cellId: string; patch: Partial<TranscriptCell> } }
-  | { type: 'set-turn'; payload: { sessionId: string; turnId: string | null } };
+  | { type: 'set-turn'; payload: { sessionId: string; turnId: string | null } }
+  | { type: 'reset-runtime'; payload: { sessionId: string } };
 
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
@@ -214,6 +215,14 @@ function reducer(state: AppState, action: AppAction): AppState {
         },
       };
     }
+    case 'reset-runtime':
+      return {
+        ...state,
+        runtimes: {
+          ...state.runtimes,
+          [action.payload.sessionId]: { turnId: null, cells: [] },
+        },
+      };
     default:
       return state;
   }
@@ -364,6 +373,48 @@ export function AppProvider(props: { children: React.ReactNode }) {
           sessionId: session.id,
           turnId: event.turnId,
           delta: event.delta,
+        },
+      });
+      return;
+    }
+
+    if (event.type === 'user-message') {
+      const runtime = currentState.runtimes[session.id] ?? { turnId: null, cells: [] };
+      const lastCell = runtime.cells[runtime.cells.length - 1];
+      if (lastCell?.type === 'user' && lastCell.text === event.text) {
+        return;
+      }
+      dispatch({
+        type: 'append-cell',
+        payload: {
+          sessionId: session.id,
+          cell: {
+            id: makeId(),
+            type: 'user',
+            text: event.text,
+            createdAt: Date.now(),
+          },
+        },
+      });
+      return;
+    }
+
+    if (event.type === 'assistant-message') {
+      const runtime = currentState.runtimes[session.id] ?? { turnId: null, cells: [] };
+      const lastCell = runtime.cells[runtime.cells.length - 1];
+      if (lastCell?.type === 'assistant' && lastCell.text === event.text) {
+        return;
+      }
+      dispatch({
+        type: 'append-cell',
+        payload: {
+          sessionId: session.id,
+          cell: {
+            id: makeId(),
+            type: 'assistant',
+            text: event.text,
+            createdAt: Date.now(),
+          },
         },
       });
       return;
@@ -847,7 +898,20 @@ export function AppProvider(props: { children: React.ReactNode }) {
         return;
       }
       const client = await ensureClient(session.connectionId);
-      await client.sendRequest('thread/resume', { threadId: session.threadId });
+      dispatch({ type: 'set-active-session', payload: { connectionId: session.connectionId, sessionId: session.id } });
+      dispatch({ type: 'reset-runtime', payload: { sessionId: session.id } });
+
+      const raw = await client.sendRequest('thread/resume', { threadId: session.threadId });
+      const hydratedCells = extractTranscriptCellsFromResumeResponse(raw);
+      console.log('[resume] thread/resume hydration', {
+        sessionId: session.id,
+        threadId: session.threadId,
+        hydratedCellCount: hydratedCells.length,
+        rawKeys: raw && typeof raw === 'object' ? Object.keys(raw as Record<string, unknown>) : [],
+      });
+      for (const cell of hydratedCells) {
+        dispatch({ type: 'append-cell', payload: { sessionId: session.id, cell } });
+      }
       dispatch({
         type: 'append-cell',
         payload: {
@@ -888,7 +952,6 @@ export function AppProvider(props: { children: React.ReactNode }) {
       }
 
       await resumeSession(target.id);
-      dispatch({ type: 'set-active-session', payload: { connectionId, sessionId: target.id } });
       return target;
     },
     [discoverSessions, resumeSession],
@@ -1073,4 +1136,58 @@ function extractThreadId(raw: unknown): string | null {
 
 function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function extractTranscriptCellsFromResumeResponse(raw: unknown): TranscriptCell[] {
+  const response = asObject(raw);
+  const thread = asObject(response?.thread);
+  const turns = Array.isArray(thread?.turns) ? thread.turns : [];
+  const cells: TranscriptCell[] = [];
+  const baseTs = Date.now();
+  let offset = 0;
+
+  for (const turn of turns) {
+    const turnObj = asObject(turn);
+    const items = Array.isArray(turnObj?.items) ? turnObj.items : [];
+    for (const item of items) {
+      const itemObj = asObject(item);
+      if (!itemObj) continue;
+      const itemType = (asString(itemObj.type) ?? '').toLowerCase();
+
+      if (itemType === 'usermessage') {
+        const text = extractUserMessageTextFromItem(itemObj);
+        if (!text) continue;
+        cells.push({ id: makeId(), type: 'user', text, createdAt: baseTs + offset++ });
+      } else if (itemType === 'agentmessage') {
+        const text = asString(itemObj.text);
+        if (!text) continue;
+        cells.push({ id: makeId(), type: 'assistant', text, createdAt: baseTs + offset++ });
+      }
+    }
+  }
+
+  return cells;
+}
+
+function extractUserMessageTextFromItem(item: Record<string, unknown>): string | null {
+  const content = Array.isArray(item.content) ? item.content : [];
+  const parts: string[] = [];
+  for (const piece of content) {
+    const pieceObj = asObject(piece);
+    if (!pieceObj) continue;
+    const pieceType = (asString(pieceObj.type) ?? '').toLowerCase();
+    if (pieceType === 'text') {
+      const text = asString(pieceObj.text);
+      if (text) parts.push(text);
+    }
+  }
+  const joined = parts.join('').trim();
+  return joined.length > 0 ? joined : null;
 }

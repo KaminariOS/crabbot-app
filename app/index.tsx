@@ -14,6 +14,7 @@ export default function ConnectionsScreen() {
     connectConnection,
     disconnectConnection,
     removeConnection,
+    discoverSessions,
     resumeLatestSession,
     resumeSession,
     setActiveSession,
@@ -205,6 +206,19 @@ export default function ConnectionsScreen() {
                   }}
                 >
                   Resume
+                </Button>
+                <Button
+                  style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text }}
+                  onPress={async () => {
+                    setMenuConnectionId(null);
+                    try {
+                      await discoverSessions(menuConnection.id);
+                    } catch (error) {
+                      Alert.alert('Refresh failed', error instanceof Error ? error.message : 'Unknown refresh error');
+                    }
+                  }}
+                >
+                  Refresh Threads
                 </Button>
                 {menuConnection.status === 'connected' || menuConnection.status === 'connecting' ? (
                   <Button

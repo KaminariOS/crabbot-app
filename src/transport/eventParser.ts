@@ -5,6 +5,8 @@ const STREAM_DEBUG = true;
 export type ParsedEvent =
   | { type: 'turn-started'; turnId: string }
   | { type: 'thread-started'; threadId: string }
+  | { type: 'user-message'; text: string }
+  | { type: 'assistant-message'; text: string }
   | { type: 'assistant-delta'; turnId?: string; delta: string }
   | { type: 'turn-completed'; status: string }
   | { type: 'turn-aborted'; reason?: string }
@@ -39,6 +41,18 @@ export function parseNotification(notification: DaemonRpcNotification): ParsedEv
   if (method === 'thread/started') {
     const threadId = asString((params.thread as Record<string, unknown> | undefined)?.id) ?? asString(params.threadId);
     return threadId ? [{ type: 'thread-started', threadId }] : [];
+  }
+
+  if (method === 'codex/event') {
+    return parseCodexEvent(params);
+  }
+
+  if (method === 'item/completed') {
+    const item = asRecord(params.item);
+    if (!item) {
+      return [];
+    }
+    return parseCompletedItem(item);
   }
 
   if (
@@ -149,6 +163,86 @@ export function parseServerRequest(request: DaemonRpcServerRequest): ParsedEvent
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function parseCodexEvent(params: Record<string, unknown>): ParsedEvent[] {
+  const event = asRecord(params.event ?? params.payload);
+  const msg = asRecord(event?.msg ?? event);
+  const msgType = asString(msg?.type)?.toLowerCase();
+  if (!msg || !msgType) {
+    return [];
+  }
+
+  if (msgType === 'turn_started') {
+    const turnId = asString(msg.turn_id) ?? asString(msg.turnId);
+    return turnId ? [{ type: 'turn-started', turnId }] : [];
+  }
+  if (msgType === 'turn_complete' || msgType === 'task_complete') {
+    return [{ type: 'turn-completed', status: asString(msg.status) ?? 'completed' }];
+  }
+  if (msgType === 'turn_aborted') {
+    return [{ type: 'turn-aborted', reason: asString(msg.reason) }];
+  }
+  if (msgType === 'user_message') {
+    const text = extractMessageText(msg);
+    return text ? [{ type: 'user-message', text }] : [];
+  }
+  if (msgType === 'agent_message') {
+    const text = extractMessageText(msg);
+    return text ? [{ type: 'assistant-message', text }] : [];
+  }
+  if (msgType === 'agent_message_delta' || msgType === 'plan_delta') {
+    const delta = asString(msg.delta);
+    return delta ? [{ type: 'assistant-delta', delta }] : [];
+  }
+  return [];
+}
+
+function parseCompletedItem(item: Record<string, unknown>): ParsedEvent[] {
+  const itemType = asString(item.type)?.toLowerCase();
+  const role = asString(item.role)?.toLowerCase();
+  const text = extractMessageText(item);
+  if (!text) return [];
+
+  if (
+    itemType === 'usermessage' ||
+    itemType === 'user_message' ||
+    itemType === 'user-message' ||
+    (itemType === 'message' && role === 'user')
+  ) {
+    return [{ type: 'user-message', text }];
+  }
+
+  if (
+    itemType === 'agentmessage' ||
+    itemType === 'agent_message' ||
+    itemType === 'agent-message' ||
+    (itemType === 'message' && role === 'assistant')
+  ) {
+    return [{ type: 'assistant-message', text }];
+  }
+
+  return [];
+}
+
+function extractMessageText(value: Record<string, unknown>): string | undefined {
+  const direct = asString(value.text) ?? asString(value.message);
+  if (direct && direct.trim()) return direct;
+
+  const content = value.content;
+  if (!Array.isArray(content)) return undefined;
+  const text = content
+    .map((part) => asString(asRecord(part)?.text))
+    .filter((part): part is string => Boolean(part))
+    .join('');
+  return text.trim() ? text : undefined;
 }
 
 function requestIdKeyForCli(requestId: unknown): string {
