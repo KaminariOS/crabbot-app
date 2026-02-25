@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Keyboard, KeyboardAvoidingView, Platform, View } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Button, Input, Paragraph, Separator, Text, XStack, YStack } from 'tamagui';
+import { Button, Input, Paragraph, Text, XStack, YStack } from 'tamagui';
 
 import type { TranscriptCell } from '@/src/domain/types';
 import { useAppState } from '@/src/state/AppContext';
@@ -19,7 +19,7 @@ export default function SessionScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const { state, setActiveSession, sendMessage, interruptSession, resumeSession, forkSession, respondApproval } = useAppState();
+  const { state, setActiveSession, sendMessage, respondApproval } = useAppState();
   const { resolvedTheme } = useThemeSettings();
   const palette = getChatGptPalette(resolvedTheme);
   const [text, setText] = useState('');
@@ -84,56 +84,6 @@ export default function SessionScreen() {
       Alert.alert('Send failed', error instanceof Error ? error.message : 'Unknown send error');
     }
   };
-
-  const actionBar = useMemo(
-    () => (
-      <XStack style={{ gap: 8 }}>
-        <Button
-          style={compactActionButtonStyle(palette)}
-          onPress={async () => {
-            if (!session) return;
-            try {
-              await resumeSession(session.id);
-            } catch (error) {
-              Alert.alert('Resume failed', error instanceof Error ? error.message : 'Unknown resume error');
-            }
-          }}
-          disabled={!session}
-        >
-          Resume
-        </Button>
-        <Button
-          style={compactActionButtonStyle(palette)}
-          onPress={async () => {
-            if (!session) return;
-            try {
-              await interruptSession(session.id);
-            } catch (error) {
-              Alert.alert('Interrupt failed', error instanceof Error ? error.message : 'Unknown interrupt error');
-            }
-          }}
-          disabled={!session || !runtime.turnId}
-        >
-          Interrupt
-        </Button>
-        <Button
-          style={compactActionButtonStyle(palette)}
-          onPress={async () => {
-            if (!session) return;
-            try {
-              await forkSession(session.id);
-            } catch (error) {
-              Alert.alert('Fork failed', error instanceof Error ? error.message : 'Unknown fork error');
-            }
-          }}
-          disabled={!session}
-        >
-          Fork
-        </Button>
-      </XStack>
-    ),
-    [forkSession, interruptSession, palette, resumeSession, runtime.turnId, session],
-  );
 
   if (!session) {
     return (
@@ -227,11 +177,9 @@ export default function SessionScreen() {
             paddingHorizontal: 12,
             paddingTop: 10,
             paddingBottom: Math.max(insets.bottom, 8),
-            gap: 10,
+            gap: 8,
           }}
         >
-          {actionBar}
-          <Separator borderColor={palette.border} />
           <XStack style={{ alignItems: 'center', gap: 8 }}>
             <Input
               value={text}
@@ -273,17 +221,6 @@ function coalesceAssistantCells(cells: TranscriptCell[]): TranscriptCell[] {
     merged.push({ ...cell });
   }
   return merged;
-}
-
-function compactActionButtonStyle(palette: ChatGptPalette) {
-  return {
-    flex: 1,
-    minWidth: 0,
-    borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: palette.surfaceAlt,
-    color: palette.text,
-  } as const;
 }
 
 function CellRow(props: {
