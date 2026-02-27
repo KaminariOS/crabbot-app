@@ -145,39 +145,39 @@ export default function ConnectionsScreen() {
                           No sessions yet.
                         </Paragraph>
                       ) : (
-                        sessions.map((session) => (
-                          <Pressable
-                            key={session.id}
-                            onPress={() => {
-                              void (async () => {
-                                try {
-                                  await resumeSession(session.id);
-                                  setActiveSession(session.id);
-                                  router.push(`/session/${session.id}` as never);
-                                } catch (error) {
-                                  Alert.alert('Resume failed', error instanceof Error ? error.message : 'Unknown resume error');
-                                }
-                              })();
-                            }}
-                          >
-                            <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
-                              <Card.Header style={{ gap: 3 }}>
-                                <Text fontWeight="700" style={{ color: palette.text }}>
-                                  {session.title}
-                                </Text>
-                                <Paragraph size="$2" style={{ color: palette.mutedText }}>
-                                  threadId: {session.threadId}
-                                </Paragraph>
-                                <Paragraph size="$2" numberOfLines={1} style={{ color: palette.mutedText }}>
-                                  last user: {lastUserMessageBySession[session.id] ?? 'loading...'}
-                                </Paragraph>
-                                <Paragraph size="$2" style={{ color: palette.mutedText }}>
-                                  state: {session.state}
-                                </Paragraph>
-                              </Card.Header>
-                            </Card>
-                          </Pressable>
-                        ))
+                        sessions.map((session) => {
+                          const pickerTitle = lastUserMessageBySession[session.id]?.trim() || session.title;
+                          return (
+                            <Pressable
+                              key={session.id}
+                              onPress={() => {
+                                void (async () => {
+                                  try {
+                                    await resumeSession(session.id);
+                                    setActiveSession(session.id);
+                                    router.push(`/session/${session.id}` as never);
+                                  } catch (error) {
+                                    Alert.alert('Resume failed', error instanceof Error ? error.message : 'Unknown resume error');
+                                  }
+                                })();
+                              }}
+                            >
+                              <Card style={{ borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }}>
+                                <Card.Header style={{ gap: 3 }}>
+                                  <Text fontWeight="700" numberOfLines={1} style={{ color: palette.text }}>
+                                    {pickerTitle}
+                                  </Text>
+                                  <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                                    threadId: {session.threadId}
+                                  </Paragraph>
+                                  <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                                    state: {session.state}
+                                  </Paragraph>
+                                </Card.Header>
+                              </Card>
+                            </Pressable>
+                          );
+                        })
                       )}
                     </YStack>
                   ) : null}
