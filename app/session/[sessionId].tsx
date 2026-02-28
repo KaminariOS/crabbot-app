@@ -31,11 +31,17 @@ export default function SessionScreen() {
   });
 
   const listRef = useRef<FlatList<TranscriptCell> | null>(null);
+  const visibleCellsRef = useRef<TranscriptCell[]>([]);
   const pendingInitialScrollRef = useRef(true);
+  const initialHydrationLockRef = useRef(true);
+  const hydrationUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const session = state.sessions.find((item) => item.id === sessionId);
   const runtime = state.runtimes[sessionId] ?? { turnId: null, cells: [] };
   const visibleCells = useMemo(() => coalesceAssistantCells(runtime.cells), [runtime.cells]);
+  useEffect(() => {
+    visibleCellsRef.current = visibleCells;
+  }, [visibleCells]);
   useEffect(() => {
     if (!STREAM_DEBUG) return;
     const rawAssistant = runtime.cells.filter((cell) => cell.type === 'assistant').length;
@@ -58,14 +64,28 @@ export default function SessionScreen() {
 
   useEffect(() => {
     pendingInitialScrollRef.current = true;
+    initialHydrationLockRef.current = true;
+    if (hydrationUnlockTimerRef.current) {
+      clearTimeout(hydrationUnlockTimerRef.current);
+      hydrationUnlockTimerRef.current = null;
+    }
   }, [sessionId]);
 
   useEffect(() => {
-    if (pendingInitialScrollRef.current) {
+    if (pendingInitialScrollRef.current || initialHydrationLockRef.current) {
       return;
     }
     listRef.current?.scrollToEnd({ animated: true });
   }, [visibleCells.length]);
+
+  useEffect(() => {
+    return () => {
+      if (hydrationUnlockTimerRef.current) {
+        clearTimeout(hydrationUnlockTimerRef.current);
+        hydrationUnlockTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -179,16 +199,26 @@ export default function SessionScreen() {
           keyboardShouldPersistTaps="handled"
           scrollEventThrottle={16}
           onScrollToIndexFailed={(info) => {
+            const currentLength = visibleCellsRef.current.length;
+            if (currentLength <= 0) {
+              return;
+            }
+            const safeIndex = Math.min(Math.max(0, info.index), currentLength - 1);
             // Variable-height rows can make the first index jump fail before enough cells are measured.
             listRef.current?.scrollToOffset({
-              offset: Math.max(0, info.averageItemLength * info.index),
+              offset: Math.max(0, info.averageItemLength * safeIndex),
               animated: false,
             });
             requestAnimationFrame(() => {
+              const latestLength = visibleCellsRef.current.length;
+              if (latestLength <= 0) {
+                return;
+              }
+              const retryIndex = Math.min(Math.max(0, safeIndex), latestLength - 1);
               listRef.current?.scrollToIndex({
-                index: info.index,
+                index: retryIndex,
                 animated: false,
-                viewPosition: 1,
+                viewPosition: 0,
               });
             });
           }}
@@ -208,15 +238,28 @@ export default function SessionScreen() {
             pendingInitialScrollRef.current = false;
             const latestAgentResponseStartIndex = findLatestAgentResponseStartIndex(visibleCells);
             requestAnimationFrame(() => {
-              if (latestAgentResponseStartIndex >= 0) {
+              const currentLength = visibleCellsRef.current.length;
+              if (latestAgentResponseStartIndex >= 0 && latestAgentResponseStartIndex < currentLength) {
                 listRef.current?.scrollToIndex({
                   index: latestAgentResponseStartIndex,
                   animated: false,
                   viewPosition: 0,
                 });
+                if (hydrationUnlockTimerRef.current) {
+                  clearTimeout(hydrationUnlockTimerRef.current);
+                }
+                hydrationUnlockTimerRef.current = setTimeout(() => {
+                  initialHydrationLockRef.current = false;
+                }, 500);
                 return;
               }
               listRef.current?.scrollToEnd({ animated: false });
+              if (hydrationUnlockTimerRef.current) {
+                clearTimeout(hydrationUnlockTimerRef.current);
+              }
+              hydrationUnlockTimerRef.current = setTimeout(() => {
+                initialHydrationLockRef.current = false;
+              }, 500);
             });
           }}
           contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 14, gap: 8, flexGrow: 1 }}
