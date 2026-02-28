@@ -22,6 +22,16 @@ export type ParsedEvent =
       reason?: string;
     };
 
+const APPROVAL_REQUEST_METHODS = new Set([
+  'item/commandExecution/requestApproval',
+  'item/fileChange/requestApproval',
+  'execCommandApproval',
+  'applyPatchApproval',
+  'item/tool/requestUserInput',
+  'item/tool/elicit',
+  'item/mcpToolCall/requestApproval',
+]);
+
 export function parseNotification(notification: DaemonRpcNotification): ParsedEvent[] {
   const params = notification.params ?? {};
   const method = notification.method;
@@ -45,6 +55,10 @@ export function parseNotification(notification: DaemonRpcNotification): ParsedEv
 
   if (method === 'codex/event') {
     return parseCodexEvent(params);
+  }
+
+  if (APPROVAL_REQUEST_METHODS.has(method)) {
+    return parseApprovalNotification(notification);
   }
 
   if (method === 'item/completed') {
@@ -136,20 +150,29 @@ export function parseNotification(notification: DaemonRpcNotification): ParsedEv
 }
 
 export function parseServerRequest(request: DaemonRpcServerRequest): ParsedEvent[] {
-  if (
-    request.method !== 'item/commandExecution/requestApproval' &&
-    request.method !== 'item/fileChange/requestApproval' &&
-    request.method !== 'execCommandApproval' &&
-    request.method !== 'applyPatchApproval' &&
-    request.method !== 'item/tool/requestUserInput' &&
-    request.method !== 'item/tool/elicit' &&
-    request.method !== 'item/mcpToolCall/requestApproval'
-  ) {
+  if (!APPROVAL_REQUEST_METHODS.has(request.method)) {
+    if (STREAM_DEBUG) {
+      console.log('[stream-debug][parser] ignore server request', {
+        method: request.method,
+        requestIdType: typeof request.request_id,
+        paramKeys: Object.keys(request.params ?? {}),
+      });
+    }
     return [];
   }
 
   const requestKey = requestIdKeyForCli(request.request_id);
-  const reason = asString(request.params?.reason);
+  const reason =
+    asString(request.params?.reason) ?? asString(request.params?.prompt) ?? asString(request.params?.message);
+  if (STREAM_DEBUG) {
+    console.log('[stream-debug][parser] approval server request', {
+      method: request.method,
+      requestKey,
+      requestIdType: typeof request.request_id,
+      paramKeys: Object.keys(request.params ?? {}),
+      reasonPreview: reason?.slice(0, 120),
+    });
+  }
   return [
     {
       type: 'approval',
@@ -159,6 +182,13 @@ export function parseServerRequest(request: DaemonRpcServerRequest): ParsedEvent
       reason,
     },
   ];
+}
+
+export function approvalDecisionForMethod(method: string, approve: boolean): 'approved' | 'denied' | 'accept' | 'decline' {
+  if (method === 'execCommandApproval' || method === 'applyPatchApproval') {
+    return approve ? 'approved' : 'denied';
+  }
+  return approve ? 'accept' : 'decline';
 }
 
 function asString(value: unknown): string | undefined {
@@ -254,4 +284,51 @@ function requestIdKeyForCli(requestId: unknown): string {
   } catch {
     return 'unknown-request';
   }
+}
+function parseApprovalNotification(notification: DaemonRpcNotification): ParsedEvent[] {
+  const params = notification.params ?? {};
+  const requestId =
+    notification.id ??
+    params.request_id ??
+    params.requestId ??
+    params.id ??
+    params.itemId ??
+    params.callId ??
+    params.call_id;
+  const requestKey = requestIdKeyForCli(requestId);
+  const commandReason = asCommandReason(params.command ?? params.rawCommand);
+  const reason =
+    commandReason ?? asString(params.reason) ?? asString(params.prompt) ?? asString(params.message) ?? asString(params.title);
+  if (STREAM_DEBUG) {
+    console.log('[stream-debug][parser] approval notification', {
+      method: notification.method,
+      requestKey,
+      hasTopLevelId: notification.id !== undefined,
+      reasonPreview: reason?.slice(0, 120),
+      paramKeys: Object.keys(params),
+    });
+  }
+  return [
+    {
+      type: 'approval',
+      requestKey,
+      requestId,
+      method: notification.method,
+      reason,
+    },
+  ];
+}
+
+function asCommandReason(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const parts = value.filter((part): part is string => typeof part === 'string');
+  if (!parts.length) {
+    return undefined;
+  }
+  return parts.join(' ');
 }

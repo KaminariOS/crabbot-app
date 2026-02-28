@@ -11,6 +11,28 @@ type PendingRequest = {
   reject: (reason?: unknown) => void;
 };
 
+const LEGACY_NOTIFICATIONS_TO_OPT_OUT = [
+  'codex/event',
+  'codex/event/session_configured',
+  'codex/event/task_started',
+  'codex/event/task_complete',
+  'codex/event/turn_started',
+  'codex/event/turn_complete',
+  'codex/event/raw_response_item',
+  'codex/event/agent_message_content_delta',
+  'codex/event/agent_message_delta',
+  'codex/event/agent_reasoning_delta',
+  'codex/event/reasoning_content_delta',
+  'codex/event/reasoning_raw_content_delta',
+  'codex/event/exec_command_output_delta',
+  'codex/event/exec_approval_request',
+  'codex/event/exec_command_begin',
+  'codex/event/exec_command_end',
+  'codex/event/exec_output',
+  'codex/event/item_started',
+  'codex/event/item_completed',
+] as const;
+
 export class DaemonRpcClient {
   private ws: WebSocket | null = null;
   private nextId = 1;
@@ -169,6 +191,10 @@ export class DaemonRpcClient {
           title: 'Crabbot Android',
           version: '0.1.0',
         },
+        capabilities: {
+          experimentalApi: true,
+          optOutNotificationMethods: LEGACY_NOTIFICATIONS_TO_OPT_OUT,
+        },
       });
       this.sendNotification('initialized', {});
       this.initialized = true;
@@ -281,9 +307,13 @@ export class DaemonRpcClient {
       return;
     }
 
-    const maybeNotification = parsed as { method?: string; params?: Record<string, unknown> };
+    const maybeNotification = parsed as { id?: unknown; method?: string; params?: Record<string, unknown> };
     if (typeof maybeNotification.method === 'string') {
-      this.onNotification?.({ method: maybeNotification.method, params: maybeNotification.params });
+      this.onNotification?.({
+        id: maybeNotification.id,
+        method: maybeNotification.method,
+        params: maybeNotification.params,
+      });
     }
   }
 

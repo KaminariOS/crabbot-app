@@ -1,4 +1,5 @@
 export type DaemonRpcNotification = {
+  id?: unknown;
   method: string;
   params?: Record<string, unknown>;
 };

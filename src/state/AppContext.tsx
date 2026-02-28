@@ -3,13 +3,17 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 
 import type { AppState, Connection, SessionRef, TranscriptCell } from '@/src/domain/types';
 import { DaemonRpcClient } from '@/src/transport/daemonRpcClient';
-import { parseNotification, parseServerRequest, type ParsedEvent } from '@/src/transport/eventParser';
+import { approvalDecisionForMethod, parseNotification, parseServerRequest, type ParsedEvent } from '@/src/transport/eventParser';
 
 const STORAGE_KEY = 'crabbot_android_state_v1';
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const THREAD_DISCOVERY_INTERVAL_MS = 15000;
 const STREAM_DEBUG = true;
+
+function normalizeForDedupe(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
 
 const initialState: AppState = {
   connections: [],
@@ -266,7 +270,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
 
   const stateRef = useRef(state);
   const clientsRef = useRef(new Map<string, DaemonRpcClient>());
-  const approvalRequestIdRef = useRef(new Map<string, unknown>());
+  const approvalRequestRef = useRef(new Map<string, { requestId: unknown; method: string }>());
   const reconnectTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const reconnectAttemptsRef = useRef(new Map<string, number>());
   const autoReconnectEnabledRef = useRef(new Set<string>());
@@ -359,6 +363,8 @@ export function AppProvider(props: { children: React.ReactNode }) {
     }
 
     if (event.type === 'assistant-delta') {
+      const accumulated = `${lastAgentMessageInTurnRef.current.get(session.id) ?? ''}${event.delta}`;
+      lastAgentMessageInTurnRef.current.set(session.id, accumulated);
       if (STREAM_DEBUG) {
         const runtime = currentState.runtimes[session.id] ?? { turnId: null, cells: [] };
         const lastCell = runtime.cells[runtime.cells.length - 1];
@@ -371,6 +377,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
           lastCellTurnId: lastCell?.type === 'assistant' ? lastCell.turnId : undefined,
           deltaLen: event.delta.length,
           deltaPreview: event.delta.slice(0, 60),
+          accumulatedLen: accumulated.length,
         });
       }
       dispatch({
@@ -407,15 +414,55 @@ export function AppProvider(props: { children: React.ReactNode }) {
 
     if (event.type === 'assistant-message') {
       const runtime = currentState.runtimes[session.id] ?? { turnId: null, cells: [] };
-      const lastAssistantText = [...runtime.cells]
-        .reverse()
-        .find((cell) => cell.type === 'assistant' && cell.text.trim().length > 0);
+      const lastAssistantText = [...runtime.cells].reverse().find((cell) => cell.type === 'assistant' && cell.text.trim().length > 0);
+      const activeTurnId = runtime.turnId ?? undefined;
+      const lastAssistantForActiveTurn = activeTurnId
+        ? [...runtime.cells]
+            .reverse()
+            .find((cell) => cell.type === 'assistant' && (cell.turnId === activeTurnId || cell.turnId === undefined))
+        : undefined;
+      const normalizedIncoming = normalizeForDedupe(event.text);
+      const normalizedAccumulated = normalizeForDedupe(lastAgentMessageInTurnRef.current.get(session.id) ?? '');
+      const normalizedLastCell =
+        lastAssistantText?.type === 'assistant' ? normalizeForDedupe(lastAssistantText.text) : '';
       if (
-        lastAgentMessageInTurnRef.current.get(session.id) === event.text ||
-        (lastAssistantText?.type === 'assistant' && lastAssistantText.text === event.text)
+        (normalizedAccumulated.length > 0 && normalizedAccumulated === normalizedIncoming) ||
+        (normalizedLastCell.length > 0 && normalizedLastCell === normalizedIncoming)
       ) {
+        if (STREAM_DEBUG) {
+          console.log('[stream-debug][apply] skip duplicate assistant-message', {
+            connectionId,
+            sessionId: session.id,
+            incomingLen: event.text.length,
+            accumulatedLen: normalizedAccumulated.length,
+            lastCellLen: normalizedLastCell.length,
+          });
+        }
         return;
       }
+
+      if (lastAssistantForActiveTurn?.type === 'assistant') {
+        if (STREAM_DEBUG) {
+          console.log('[stream-debug][apply] finalize streamed assistant-message into active turn cell', {
+            connectionId,
+            sessionId: session.id,
+            activeTurnId,
+            cellId: lastAssistantForActiveTurn.id,
+            incomingLen: event.text.length,
+          });
+        }
+        lastAgentMessageInTurnRef.current.set(session.id, event.text);
+        dispatch({
+          type: 'patch-cell',
+          payload: {
+            sessionId: session.id,
+            cellId: lastAssistantForActiveTurn.id,
+            patch: { text: event.text, turnId: activeTurnId },
+          },
+        });
+        return;
+      }
+
       lastAgentMessageInTurnRef.current.set(session.id, event.text);
       dispatch({
         type: 'append-cell',
@@ -551,7 +598,19 @@ export function AppProvider(props: { children: React.ReactNode }) {
     }
 
     if (event.type === 'approval') {
-      approvalRequestIdRef.current.set(event.requestKey, event.requestId);
+      if (STREAM_DEBUG) {
+        console.log('[stream-debug][apply] approval event', {
+          connectionId,
+          sessionId: session.id,
+          requestKey: event.requestKey,
+          method: event.method,
+          hasReason: Boolean(event.reason?.trim()),
+        });
+      }
+      approvalRequestRef.current.set(event.requestKey, {
+        requestId: event.requestId,
+        method: event.method,
+      });
       dispatch({
         type: 'append-cell',
         payload: {
@@ -663,8 +722,15 @@ export function AppProvider(props: { children: React.ReactNode }) {
         }
       };
       client.onServerRequest = (request) => {
-        console.log('[connection] server request', { connectionId, method: request.method });
-        for (const parsed of parseServerRequest(request)) {
+        const parsedEvents = parseServerRequest(request);
+        console.log('[connection] server request', {
+          connectionId,
+          method: request.method,
+          requestIdType: typeof request.request_id,
+          parsedCount: parsedEvents.length,
+          paramKeys: Object.keys(request.params ?? {}),
+        });
+        for (const parsed of parsedEvents) {
           applyParsedEvent(connectionId, parsed);
         }
       };
@@ -1109,16 +1175,20 @@ export function AppProvider(props: { children: React.ReactNode }) {
         return;
       }
       const client = await ensureClient(session.connectionId);
-      const requestId = approvalRequestIdRef.current.get(requestKey);
-      if (requestId === undefined) {
-        return;
-      }
-      client.sendResponse(requestId, { decision: approve ? 'approved' : 'denied' });
-
+      const pendingApproval = approvalRequestRef.current.get(requestKey);
       const runtime = stateRef.current.runtimes[sessionId] ?? { turnId: null, cells: [] };
       const approvalCell = runtime.cells.find(
         (cell) => cell.type === 'approval' && cell.requestKey === requestKey,
       );
+
+      const requestId = pendingApproval?.requestId ?? (approvalCell?.type === 'approval' ? approvalCell.requestId : undefined);
+      const method = pendingApproval?.method ?? (approvalCell?.type === 'approval' ? approvalCell.method : undefined);
+      if (requestId === undefined || !method) {
+        return;
+      }
+      client.sendResponse(requestId, { decision: approvalDecisionForMethod(method, approve) });
+      approvalRequestRef.current.delete(requestKey);
+
       if (approvalCell?.type === 'approval') {
         dispatch({
           type: 'patch-cell',
