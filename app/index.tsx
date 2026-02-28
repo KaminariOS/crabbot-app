@@ -18,7 +18,7 @@ export default function ConnectionsScreen() {
     resumeLatestSession,
     resumeSession,
     setActiveSession,
-    getSessionLastUserMessage,
+    getSessionMessagePreview,
     setSessionTitle,
   } = useAppState();
   const { resolvedTheme } = useThemeSettings();
@@ -26,6 +26,7 @@ export default function ConnectionsScreen() {
   const [menuConnectionId, setMenuConnectionId] = React.useState<string | null>(null);
   const [expandedConnectionIds, setExpandedConnectionIds] = React.useState<Record<string, boolean>>({});
   const [lastUserMessageBySession, setLastUserMessageBySession] = React.useState<Record<string, string | null>>({});
+  const [lastAssistantMessageBySession, setLastAssistantMessageBySession] = React.useState<Record<string, string | null>>({});
   const [loadingSessionId, setLoadingSessionId] = React.useState<string | null>(null);
   const menuConnection = menuConnectionId ? state.connections.find((connection) => connection.id === menuConnectionId) ?? null : null;
 
@@ -34,7 +35,9 @@ export default function ConnectionsScreen() {
       .filter(([, expanded]) => expanded)
       .map(([connectionId]) => connectionId);
     const sessionsToHydrate = state.sessions.filter(
-      (session) => expandedConnectionIdsList.includes(session.connectionId) && lastUserMessageBySession[session.id] === undefined,
+      (session) =>
+        expandedConnectionIdsList.includes(session.connectionId) &&
+        (lastUserMessageBySession[session.id] === undefined || lastAssistantMessageBySession[session.id] === undefined),
     );
     if (sessionsToHydrate.length === 0) {
       return;
@@ -42,17 +45,26 @@ export default function ConnectionsScreen() {
     void Promise.all(
       sessionsToHydrate.map(async (session) => {
         try {
-          const message = await getSessionLastUserMessage(session.id);
-          if (message?.trim()) {
-            setSessionTitle(session.id, message);
+          const preview = await getSessionMessagePreview(session.id);
+          if (preview.lastUser?.trim()) {
+            setSessionTitle(session.id, preview.lastUser);
           }
-          setLastUserMessageBySession((current) => ({ ...current, [session.id]: message }));
+          setLastUserMessageBySession((current) => ({ ...current, [session.id]: preview.lastUser }));
+          setLastAssistantMessageBySession((current) => ({ ...current, [session.id]: preview.lastAssistant }));
         } catch {
           setLastUserMessageBySession((current) => ({ ...current, [session.id]: null }));
+          setLastAssistantMessageBySession((current) => ({ ...current, [session.id]: null }));
         }
       }),
     );
-  }, [expandedConnectionIds, getSessionLastUserMessage, lastUserMessageBySession, setSessionTitle, state.sessions]);
+  }, [
+    expandedConnectionIds,
+    getSessionMessagePreview,
+    lastAssistantMessageBySession,
+    lastUserMessageBySession,
+    setSessionTitle,
+    state.sessions,
+  ]);
 
   return (
     <YStack flex={1}>
@@ -153,6 +165,7 @@ export default function ConnectionsScreen() {
                       ) : (
                         sessions.map((session) => {
                           const pickerTitle = lastUserMessageBySession[session.id]?.trim() || session.title;
+                          const assistantPreview = lastAssistantMessageBySession[session.id]?.trim();
                           return (
                             <Pressable
                               key={session.id}
@@ -177,6 +190,9 @@ export default function ConnectionsScreen() {
                                   <Text fontWeight="700" numberOfLines={1} style={{ color: palette.text }}>
                                     {pickerTitle}
                                   </Text>
+                                  <Paragraph size="$2" numberOfLines={2} style={{ color: palette.text }}>
+                                    {assistantPreview ? `Agent: ${assistantPreview}` : 'Agent: —'}
+                                  </Paragraph>
                                   <Paragraph size="$2" style={{ color: palette.mutedText }}>
                                     threadId: {session.threadId}
                                   </Paragraph>

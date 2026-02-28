@@ -273,7 +273,7 @@ type AppContextType = {
   interruptSession: (sessionId: string) => Promise<void>;
   respondApproval: (sessionId: string, requestKey: string, approve: boolean) => Promise<void>;
   setActiveSession: (sessionId: string) => void;
-  getSessionLastUserMessage: (sessionId: string) => Promise<string | null>;
+  getSessionMessagePreview: (sessionId: string) => Promise<{ lastUser: string | null; lastAssistant: string | null }>;
   setSessionTitle: (sessionId: string, title: string) => void;
   dismissInAppNotification: (notificationId: string) => void;
 };
@@ -1309,18 +1309,18 @@ export function AppProvider(props: { children: React.ReactNode }) {
     dispatch({ type: 'set-active-session', payload: { connectionId: session.connectionId, sessionId } });
   }, []);
 
-  const getSessionLastUserMessage = useCallback(
-    async (sessionId: string): Promise<string | null> => {
+  const getSessionMessagePreview = useCallback(
+    async (sessionId: string): Promise<{ lastUser: string | null; lastAssistant: string | null }> => {
       const session = stateRef.current.sessions.find((s) => s.id === sessionId);
       if (!session) {
-        return null;
+        return { lastUser: null, lastAssistant: null };
       }
       const client = await ensureClient(session.connectionId);
       const raw = (await client.sendRequest('thread/read', {
         threadId: session.threadId,
         includeTurns: true,
       })) as unknown;
-      return extractLastUserMessageFromThreadRead(raw);
+      return extractMessagePreviewFromThreadRead(raw);
     },
     [ensureClient],
   );
@@ -1362,7 +1362,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
       interruptSession,
       respondApproval,
       setActiveSession,
-      getSessionLastUserMessage,
+      getSessionMessagePreview,
       setSessionTitle,
       dismissInAppNotification,
     }),
@@ -1383,7 +1383,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
       interruptSession,
       respondApproval,
       setActiveSession,
-      getSessionLastUserMessage,
+      getSessionMessagePreview,
       setSessionTitle,
       dismissInAppNotification,
     ],
@@ -1476,11 +1476,12 @@ function extractUserMessageTextFromItem(item: Record<string, unknown>): string |
   return joined.length > 0 ? joined : null;
 }
 
-function extractLastUserMessageFromThreadRead(raw: unknown): string | null {
+function extractMessagePreviewFromThreadRead(raw: unknown): { lastUser: string | null; lastAssistant: string | null } {
   const response = asObject(raw);
   const thread = asObject(response?.thread);
   const turns = Array.isArray(thread?.turns) ? thread.turns : [];
   let lastUserMessage: string | null = null;
+  let lastAssistantMessage: string | null = null;
 
   for (const turn of turns) {
     const turnObj = asObject(turn);
@@ -1489,13 +1490,24 @@ function extractLastUserMessageFromThreadRead(raw: unknown): string | null {
       const itemObj = asObject(item);
       if (!itemObj) continue;
       const itemType = (asString(itemObj.type) ?? '').toLowerCase();
-      if (itemType !== 'usermessage') continue;
-      const text = extractUserMessageTextFromItem(itemObj);
-      if (text) {
-        lastUserMessage = text;
+      if (itemType === 'usermessage') {
+        const text = extractUserMessageTextFromItem(itemObj);
+        if (text) {
+          lastUserMessage = text;
+        }
+        continue;
+      }
+      if (itemType === 'agentmessage') {
+        const text = asString(itemObj.text);
+        if (text) {
+          lastAssistantMessage = text;
+        }
       }
     }
   }
 
-  return lastUserMessage;
+  return {
+    lastUser: lastUserMessage,
+    lastAssistant: lastAssistantMessage,
+  };
 }

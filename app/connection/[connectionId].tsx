@@ -21,12 +21,13 @@ export default function ConnectionDetailScreen() {
     discoverSessions,
     resumeSession,
     setActiveSession,
-    getSessionLastUserMessage,
+    getSessionMessagePreview,
     setSessionTitle,
   } = useAppState();
   const { resolvedTheme } = useThemeSettings();
   const palette = getChatGptPalette(resolvedTheme);
   const [lastUserMessageBySession, setLastUserMessageBySession] = React.useState<Record<string, string | null>>({});
+  const [lastAssistantMessageBySession, setLastAssistantMessageBySession] = React.useState<Record<string, string | null>>({});
   const [loadingSessionId, setLoadingSessionId] = React.useState<string | null>(null);
 
   const connection = state.connections.find((item) => item.id === connectionId);
@@ -35,24 +36,28 @@ export default function ConnectionDetailScreen() {
     .sort((a, b) => b.updatedAt - a.updatedAt);
 
   React.useEffect(() => {
-    const sessionsToHydrate = sessions.filter((session) => lastUserMessageBySession[session.id] === undefined);
+    const sessionsToHydrate = sessions.filter(
+      (session) => lastUserMessageBySession[session.id] === undefined || lastAssistantMessageBySession[session.id] === undefined,
+    );
     if (sessionsToHydrate.length === 0) {
       return;
     }
     void Promise.all(
       sessionsToHydrate.map(async (session) => {
         try {
-          const message = await getSessionLastUserMessage(session.id);
-          if (message?.trim()) {
-            setSessionTitle(session.id, message);
+          const preview = await getSessionMessagePreview(session.id);
+          if (preview.lastUser?.trim()) {
+            setSessionTitle(session.id, preview.lastUser);
           }
-          setLastUserMessageBySession((current) => ({ ...current, [session.id]: message }));
+          setLastUserMessageBySession((current) => ({ ...current, [session.id]: preview.lastUser }));
+          setLastAssistantMessageBySession((current) => ({ ...current, [session.id]: preview.lastAssistant }));
         } catch {
           setLastUserMessageBySession((current) => ({ ...current, [session.id]: null }));
+          setLastAssistantMessageBySession((current) => ({ ...current, [session.id]: null }));
         }
       }),
     );
-  }, [getSessionLastUserMessage, lastUserMessageBySession, sessions, setSessionTitle]);
+  }, [getSessionMessagePreview, lastAssistantMessageBySession, lastUserMessageBySession, sessions, setSessionTitle]);
 
   if (!connection) {
     return (
@@ -185,6 +190,7 @@ export default function ConnectionDetailScreen() {
         ) : (
           sessions.map((session) => {
             const pickerTitle = lastUserMessageBySession[session.id]?.trim() || session.title;
+            const assistantPreview = lastAssistantMessageBySession[session.id]?.trim();
             return (
               <Pressable
                 key={session.id}
@@ -209,6 +215,9 @@ export default function ConnectionDetailScreen() {
                     <Text fontWeight="700" numberOfLines={1} style={{ color: palette.text }}>
                       {pickerTitle}
                     </Text>
+                    <Paragraph size="$2" numberOfLines={2} style={{ color: palette.text }}>
+                      {assistantPreview ? `Agent: ${assistantPreview}` : 'Agent: —'}
+                    </Paragraph>
                     <Paragraph size="$2" style={{ color: palette.mutedText }}>
                       threadId: {session.threadId}
                     </Paragraph>
