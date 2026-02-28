@@ -26,6 +26,7 @@ export default function SessionScreen() {
   const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
 
   const listRef = useRef<FlatList<TranscriptCell> | null>(null);
+  const pendingInitialScrollRef = useRef(true);
 
   const session = state.sessions.find((item) => item.id === sessionId);
   const runtime = state.runtimes[sessionId] ?? { turnId: null, cells: [] };
@@ -49,6 +50,10 @@ export default function SessionScreen() {
       setActiveSession(session.id);
     }
   }, [session, setActiveSession]);
+
+  useEffect(() => {
+    pendingInitialScrollRef.current = true;
+  }, [sessionId]);
 
   useEffect(() => {
     listRef.current?.scrollToEnd({ animated: true });
@@ -153,6 +158,15 @@ export default function SessionScreen() {
         data={visibleCells}
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="handled"
+        onContentSizeChange={() => {
+          if (!pendingInitialScrollRef.current) {
+            return;
+          }
+          pendingInitialScrollRef.current = false;
+          requestAnimationFrame(() => {
+            listRef.current?.scrollToEnd({ animated: false });
+          });
+        }}
         contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 14, gap: 8, flexGrow: 1 }}
         renderItem={({ item }) => (
           <CellRow cell={item} palette={palette} sessionId={session.id} onApproval={respondApproval} />
