@@ -2,7 +2,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 import type { AppState, Connection, SessionRef, TranscriptCell } from '@/src/domain/types';
-import { initializePushNotifications, isNativePushAvailable, notifyDevice } from '@/src/notifications/pushNotifications';
+import {
+  getNativeDevicePushToken,
+  initializePushNotifications,
+  isNativePushAvailable,
+  notifyDevice,
+} from '@/src/notifications/pushNotifications';
 import { DaemonRpcClient } from '@/src/transport/daemonRpcClient';
 import { approvalDecisionForMethod, parseNotification, parseServerRequest, type ParsedEvent } from '@/src/transport/eventParser';
 
@@ -302,6 +307,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
   const lastSessionDiscoveryAtRef = useRef(new Map<string, number>());
   const notificationTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const lastAgentMessageInTurnRef = useRef(new Map<string, string>());
+  const registeredPushTokenConnectionRef = useRef(new Set<string>());
 
   useEffect(() => {
     stateRef.current = state;
@@ -690,6 +696,40 @@ export function AppProvider(props: { children: React.ReactNode }) {
     }
   }, [enqueueInAppNotification]);
 
+  const registerPushTokenForConnection = useCallback(async (connectionId: string) => {
+    const connection = stateRef.current.connections.find((item) => item.id === connectionId);
+    if (!connection) {
+      return;
+    }
+    const token = await getNativeDevicePushToken();
+    if (!token) {
+      return;
+    }
+    const dedupeKey = `${connectionId}:${token}`;
+    if (registeredPushTokenConnectionRef.current.has(dedupeKey)) {
+      return;
+    }
+    const endpoint = buildNotificationRegisterEndpoint(connection.websocketUrl);
+    if (!endpoint) {
+      return;
+    }
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ token }),
+      });
+      if (!response.ok) {
+        return;
+      }
+      registeredPushTokenConnectionRef.current.add(dedupeKey);
+    } catch {
+      // Best-effort registration; retry on next reconnect.
+    }
+  }, []);
+
   const ensureClient = useCallback(
     async (connectionId: string): Promise<DaemonRpcClient> => {
       const existing = clientsRef.current.get(connectionId);
@@ -724,6 +764,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
 
         if (status === 'connected') {
           resetReconnectState(connectionId);
+          void registerPushTokenForConnection(connectionId);
           return;
         }
 
@@ -817,7 +858,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
       clientsRef.current.set(connectionId, client);
       return client;
     },
-    [applyParsedEvent, resetReconnectState],
+    [applyParsedEvent, registerPushTokenForConnection, resetReconnectState],
   );
 
   const connectConnection = useCallback(
@@ -885,6 +926,11 @@ export function AppProvider(props: { children: React.ReactNode }) {
       resetReconnectState(connectionId);
       clientsRef.current.get(connectionId)?.disconnect();
       clientsRef.current.delete(connectionId);
+      for (const key of [...registeredPushTokenConnectionRef.current]) {
+        if (key.startsWith(`${connectionId}:`)) {
+          registeredPushTokenConnectionRef.current.delete(key);
+        }
+      }
     }
 
     dispatch({
@@ -901,6 +947,11 @@ export function AppProvider(props: { children: React.ReactNode }) {
     lastSessionDiscoveryAtRef.current.delete(connectionId);
     clientsRef.current.get(connectionId)?.disconnect();
     clientsRef.current.delete(connectionId);
+    for (const key of [...registeredPushTokenConnectionRef.current]) {
+      if (key.startsWith(`${connectionId}:`)) {
+        registeredPushTokenConnectionRef.current.delete(key);
+      }
+    }
     dispatch({ type: 'remove-connection', payload: { connectionId } });
   }, [resetReconnectState]);
 
@@ -1510,4 +1561,23 @@ function extractMessagePreviewFromThreadRead(raw: unknown): { lastUser: string |
     lastUser: lastUserMessage,
     lastAssistant: lastAssistantMessage,
   };
+}
+
+function buildNotificationRegisterEndpoint(websocketUrl: string): string | null {
+  try {
+    const parsed = new URL(websocketUrl);
+    if (parsed.protocol === 'ws:') {
+      parsed.protocol = 'http:';
+    } else if (parsed.protocol === 'wss:') {
+      parsed.protocol = 'https:';
+    } else {
+      return null;
+    }
+    parsed.pathname = '/v1/notifications/register';
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }

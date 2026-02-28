@@ -100,3 +100,29 @@ export async function notifyDevice(title: string, body: string, data?: Record<st
     trigger: null,
   });
 }
+
+export async function getNativeDevicePushToken(): Promise<string | null> {
+  if (!(await initializePushNotifications())) {
+    return null;
+  }
+  const Notifications = await loadNotificationsModule();
+  if (!Notifications) {
+    return null;
+  }
+  try {
+    const token = await Notifications.getDevicePushTokenAsync();
+    const raw = token?.data;
+    if (typeof raw === 'string' && raw.trim().length > 0) {
+      return raw;
+    }
+    if (raw && typeof raw === 'object' && 'token' in raw) {
+      const nested = (raw as { token?: unknown }).token;
+      if (typeof nested === 'string' && nested.trim().length > 0) {
+        return nested;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
