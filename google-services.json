@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1076174385520",
+    "project_id": "crabbot-6098f",
+    "storage_bucket": "crabbot-6098f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1076174385520:android:24769e96ec311041abdfb5",
+        "android_client_info": {
+          "package_name": "com.crabbot"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCiZvEVyg0THiLLdMfKkMEDy2aHA3go1qs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
