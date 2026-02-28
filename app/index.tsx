@@ -31,9 +31,12 @@ export default function ConnectionsScreen() {
   const menuConnection = menuConnectionId ? state.connections.find((connection) => connection.id === menuConnectionId) ?? null : null;
 
   React.useEffect(() => {
-    const expandedConnectionIdsList = Object.entries(expandedConnectionIds)
-      .filter(([, expanded]) => expanded)
-      .map(([connectionId]) => connectionId);
+    const expandedConnectionIdsList =
+      state.connections.length === 1
+        ? state.connections.map((connection) => connection.id)
+        : Object.entries(expandedConnectionIds)
+            .filter(([, expanded]) => expanded)
+            .map(([connectionId]) => connectionId);
     const sessionsToHydrate = state.sessions.filter(
       (session) =>
         expandedConnectionIdsList.includes(session.connectionId) &&
@@ -63,6 +66,7 @@ export default function ConnectionsScreen() {
     lastAssistantMessageBySession,
     lastUserMessageBySession,
     setSessionTitle,
+    state.connections,
     state.sessions,
   ]);
 

@@ -16,6 +16,7 @@ const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const THREAD_DISCOVERY_INTERVAL_MS = 15000;
 const STREAM_DEBUG = false;
+const PREVIEW_DEBUG = true;
 
 function normalizeForDedupe(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
@@ -296,6 +297,7 @@ export type InAppNotification = {
 export function AppProvider(props: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [inAppNotifications, setInAppNotifications] = useState<InAppNotification[]>([]);
+  const [hydrationComplete, setHydrationComplete] = useState(false);
 
   const stateRef = useRef(state);
   const clientsRef = useRef(new Map<string, DaemonRpcClient>());
@@ -308,6 +310,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
   const notificationTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const lastAgentMessageInTurnRef = useRef(new Map<string, string>());
   const registeredPushTokenConnectionRef = useRef(new Set<string>());
+  const startupConnectAttemptedRef = useRef(new Set<string>());
 
   useEffect(() => {
     stateRef.current = state;
@@ -315,15 +318,20 @@ export function AppProvider(props: { children: React.ReactNode }) {
 
   useEffect(() => {
     void (async () => {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        return;
-      }
       try {
+        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+          return;
+        }
         const parsed = JSON.parse(raw) as AppState;
+        for (const connection of parsed.connections) {
+          autoReconnectEnabledRef.current.add(connection.id);
+        }
         dispatch({ type: 'hydrate', payload: parsed });
       } catch {
         // Ignore corrupted persisted state.
+      } finally {
+        setHydrationComplete(true);
       }
     })();
   }, []);
@@ -732,9 +740,13 @@ export function AppProvider(props: { children: React.ReactNode }) {
 
   const ensureClient = useCallback(
     async (connectionId: string): Promise<DaemonRpcClient> => {
+      const resolveConnection = () =>
+        stateRef.current.connections.find((item) => item.id === connectionId) ??
+        state.connections.find((item) => item.id === connectionId);
+      autoReconnectEnabledRef.current.add(connectionId);
       const existing = clientsRef.current.get(connectionId);
       if (existing) {
-        const connection = stateRef.current.connections.find((item) => item.id === connectionId);
+        const connection = resolveConnection();
         const url = connection?.websocketUrl;
         const status = existing.getStatus();
         if (url && (status === 'disconnected' || status === 'error')) {
@@ -750,8 +762,15 @@ export function AppProvider(props: { children: React.ReactNode }) {
         return existing;
       }
 
-      const connection = stateRef.current.connections.find((item) => item.id === connectionId);
+      const connection = resolveConnection();
       if (!connection) {
+        if (PREVIEW_DEBUG) {
+          console.log('[preview-debug] ensureClient connection missing', {
+            connectionId,
+            stateRefConnectionIds: stateRef.current.connections.map((item) => item.id),
+            stateConnectionIds: state.connections.map((item) => item.id),
+          });
+        }
         throw new Error('Connection not found');
       }
 
@@ -773,7 +792,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
             return;
           }
 
-          const connection = stateRef.current.connections.find((item) => item.id === connectionId);
+          const connection = resolveConnection();
           if (!connection) {
             return;
           }
@@ -796,7 +815,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
               return;
             }
 
-            const currentConnection = stateRef.current.connections.find((item) => item.id === connectionId);
+            const currentConnection = resolveConnection();
             if (!currentConnection) {
               return;
             }
@@ -858,7 +877,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
       clientsRef.current.set(connectionId, client);
       return client;
     },
-    [applyParsedEvent, registerPushTokenForConnection, resetReconnectState],
+    [applyParsedEvent, registerPushTokenForConnection, resetReconnectState, state.connections],
   );
 
   const connectConnection = useCallback(
@@ -895,6 +914,20 @@ export function AppProvider(props: { children: React.ReactNode }) {
     },
     [clearReconnectTimer, ensureClient],
   );
+
+  useEffect(() => {
+    if (!hydrationComplete) {
+      return;
+    }
+
+    for (const connection of state.connections) {
+      if (startupConnectAttemptedRef.current.has(connection.id)) {
+        continue;
+      }
+      startupConnectAttemptedRef.current.add(connection.id);
+      void connectConnection(connection.id);
+    }
+  }, [connectConnection, hydrationComplete, state.connections]);
 
   const addConnection = useCallback((name: string, websocketUrl: string) => {
     const now = Date.now();
@@ -1362,18 +1395,52 @@ export function AppProvider(props: { children: React.ReactNode }) {
 
   const getSessionMessagePreview = useCallback(
     async (sessionId: string): Promise<{ lastUser: string | null; lastAssistant: string | null }> => {
-      const session = stateRef.current.sessions.find((s) => s.id === sessionId);
+      const session = state.sessions.find((s) => s.id === sessionId);
       if (!session) {
+        if (PREVIEW_DEBUG) {
+          console.log('[preview-debug] session not found', {
+            sessionId,
+            knownSessionCount: state.sessions.length,
+          });
+        }
         return { lastUser: null, lastAssistant: null };
       }
-      const client = await ensureClient(session.connectionId);
-      const raw = (await client.sendRequest('thread/read', {
-        threadId: session.threadId,
-        includeTurns: true,
-      })) as unknown;
-      return extractMessagePreviewFromThreadRead(raw);
+      try {
+        const client = await ensureClient(session.connectionId);
+        if (PREVIEW_DEBUG) {
+          console.log('[preview-debug] request start', {
+            sessionId,
+            connectionId: session.connectionId,
+            threadId: session.threadId,
+          });
+        }
+        const raw = (await client.sendRequest('thread/read', {
+          threadId: session.threadId,
+          includeTurns: true,
+        })) as unknown;
+        const preview = extractMessagePreviewFromThreadRead(raw);
+        if (PREVIEW_DEBUG) {
+          console.log('[preview-debug] thread/read summary', {
+            sessionId,
+            threadId: session.threadId,
+            preview,
+            summary: summarizeThreadReadForPreview(raw),
+          });
+        }
+        return preview;
+      } catch (error) {
+        if (PREVIEW_DEBUG) {
+          console.log('[preview-debug] request failed', {
+            sessionId,
+            connectionId: session.connectionId,
+            threadId: session.threadId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        throw error;
+      }
     },
-    [ensureClient],
+    [ensureClient, state.sessions],
   );
 
   const setSessionTitle = useCallback((sessionId: string, title: string) => {
@@ -1495,15 +1562,27 @@ function extractTranscriptCellsFromResumeResponse(raw: unknown): TranscriptCell[
       const itemObj = asObject(item);
       if (!itemObj) continue;
       const itemType = (asString(itemObj.type) ?? '').toLowerCase();
-
-      if (itemType === 'usermessage') {
-        const text = extractUserMessageTextFromItem(itemObj);
-        if (!text) continue;
-        cells.push({ id: makeId(), type: 'user', text, createdAt: baseTs + offset++ });
-      } else if (itemType === 'agentmessage') {
-        const text = asString(itemObj.text);
-        if (!text) continue;
-        cells.push({ id: makeId(), type: 'assistant', text, createdAt: baseTs + offset++ });
+      const role = (asString(itemObj.role) ?? '').toLowerCase();
+      if (
+        itemType === 'usermessage' ||
+        itemType === 'user_message' ||
+        itemType === 'user-message' ||
+        (itemType === 'message' && role === 'user')
+      ) {
+        const text = extractMessageTextFromItem(itemObj);
+        if (text) {
+          cells.push({ id: makeId(), type: 'user', text, createdAt: baseTs + offset++ });
+        }
+      } else if (
+        itemType === 'agentmessage' ||
+        itemType === 'agent_message' ||
+        itemType === 'agent-message' ||
+        (itemType === 'message' && role === 'assistant')
+      ) {
+        const text = extractMessageTextFromItem(itemObj);
+        if (text) {
+          cells.push({ id: makeId(), type: 'assistant', text, createdAt: baseTs + offset++ });
+        }
       }
     }
   }
@@ -1511,17 +1590,16 @@ function extractTranscriptCellsFromResumeResponse(raw: unknown): TranscriptCell[
   return cells;
 }
 
-function extractUserMessageTextFromItem(item: Record<string, unknown>): string | null {
+function extractMessageTextFromItem(item: Record<string, unknown>): string | null {
+  const direct = asString(item.text) ?? asString(item.message);
+  if (direct) return direct;
   const content = Array.isArray(item.content) ? item.content : [];
   const parts: string[] = [];
   for (const piece of content) {
     const pieceObj = asObject(piece);
     if (!pieceObj) continue;
-    const pieceType = (asString(pieceObj.type) ?? '').toLowerCase();
-    if (pieceType === 'text') {
-      const text = asString(pieceObj.text);
-      if (text) parts.push(text);
-    }
+    const text = asString(pieceObj.text);
+    if (text) parts.push(text);
   }
   const joined = parts.join('').trim();
   return joined.length > 0 ? joined : null;
@@ -1536,20 +1614,35 @@ function extractMessagePreviewFromThreadRead(raw: unknown): { lastUser: string |
 
   for (const turn of turns) {
     const turnObj = asObject(turn);
+    const lastAgentFromTurn = asString(turnObj?.lastAgentMessage) ?? asString(turnObj?.last_agent_message);
+    if (lastAgentFromTurn) {
+      lastAssistantMessage = lastAgentFromTurn;
+    }
     const items = Array.isArray(turnObj?.items) ? turnObj.items : [];
     for (const item of items) {
       const itemObj = asObject(item);
       if (!itemObj) continue;
       const itemType = (asString(itemObj.type) ?? '').toLowerCase();
-      if (itemType === 'usermessage') {
-        const text = extractUserMessageTextFromItem(itemObj);
+      const role = (asString(itemObj.role) ?? '').toLowerCase();
+      if (
+        itemType === 'usermessage' ||
+        itemType === 'user_message' ||
+        itemType === 'user-message' ||
+        (itemType === 'message' && role === 'user')
+      ) {
+        const text = extractMessageTextFromItem(itemObj);
         if (text) {
           lastUserMessage = text;
         }
         continue;
       }
-      if (itemType === 'agentmessage') {
-        const text = asString(itemObj.text);
+      if (
+        itemType === 'agentmessage' ||
+        itemType === 'agent_message' ||
+        itemType === 'agent-message' ||
+        (itemType === 'message' && role === 'assistant')
+      ) {
+        const text = extractMessageTextFromItem(itemObj);
         if (text) {
           lastAssistantMessage = text;
         }
@@ -1560,6 +1653,34 @@ function extractMessagePreviewFromThreadRead(raw: unknown): { lastUser: string |
   return {
     lastUser: lastUserMessage,
     lastAssistant: lastAssistantMessage,
+  };
+}
+
+function summarizeThreadReadForPreview(raw: unknown) {
+  const response = asObject(raw);
+  const thread = asObject(response?.thread);
+  const turns = Array.isArray(thread?.turns) ? thread.turns : [];
+  const lastTurnObj = turns.length > 0 ? asObject(turns[turns.length - 1]) : null;
+  const lastTurnItems = Array.isArray(lastTurnObj?.items) ? lastTurnObj.items : [];
+  const lastTurnItemTypes = lastTurnItems
+    .map((item) => asObject(item))
+    .filter((item): item is Record<string, unknown> => item != null)
+    .map((item) => ({
+      type: asString(item.type),
+      role: asString(item.role),
+      hasText: Boolean(asString(item.text)),
+      hasMessage: Boolean(asString(item.message)),
+      contentCount: Array.isArray(item.content) ? item.content.length : 0,
+    }));
+
+  return {
+    topLevelKeys: response ? Object.keys(response) : [],
+    threadKeys: thread ? Object.keys(thread) : [],
+    turnCount: turns.length,
+    lastTurnKeys: lastTurnObj ? Object.keys(lastTurnObj) : [],
+    lastTurnLastAgentMessage:
+      asString(lastTurnObj?.lastAgentMessage) ?? asString(lastTurnObj?.last_agent_message) ?? null,
+    lastTurnItemTypes,
   };
 }
 

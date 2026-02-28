@@ -65,8 +65,12 @@ export class DaemonRpcClient {
     this.initialized = false;
     this.initializing = null;
 
-    this.ws = new WebSocket(url);
-    this.ws.onopen = () => {
+    const ws = new WebSocket(url);
+    this.ws = ws;
+    ws.onopen = () => {
+      if (this.ws !== ws) {
+        return;
+      }
       this.setStatus('connected');
       for (const waiter of this.openWaiters) {
         waiter.resolve();
@@ -74,11 +78,17 @@ export class DaemonRpcClient {
       this.openWaiters = [];
       this.debug('open');
     };
-    this.ws.onerror = (event) => {
+    ws.onerror = (event) => {
+      if (this.ws !== ws) {
+        return;
+      }
       this.setStatus('error', 'WebSocket error');
       this.debug('error', sanitizeEvent(event));
     };
-    this.ws.onclose = (event) => {
+    ws.onclose = (event) => {
+      if (this.ws !== ws) {
+        return;
+      }
       if (!event.wasClean || event.code !== 1000) {
         this.setStatus(
           'error',
@@ -96,8 +106,16 @@ export class DaemonRpcClient {
         waiter.reject(new Error('Connection closed before open'));
       }
       this.openWaiters = [];
+      for (const request of this.pending.values()) {
+        request.reject(new Error('Disconnected'));
+      }
+      this.pending.clear();
+      this.ws = null;
     };
-    this.ws.onmessage = (event) => {
+    ws.onmessage = (event) => {
+      if (this.ws !== ws) {
+        return;
+      }
       if (typeof event.data !== 'string') {
         this.debug('recv-non-text', { dataType: typeof event.data });
         return;
