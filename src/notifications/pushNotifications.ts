@@ -1,9 +1,21 @@
 import Constants from 'expo-constants';
-import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
 let initialized = false;
 let enabled = false;
+let notificationsModule: typeof import('expo-notifications') | null = null;
+
+async function loadNotificationsModule(): Promise<typeof import('expo-notifications') | null> {
+  if (notificationsModule) {
+    return notificationsModule;
+  }
+  try {
+    notificationsModule = await import('expo-notifications');
+    return notificationsModule;
+  } catch {
+    return null;
+  }
+}
 
 export function isNativePushAvailable(): boolean {
   if (Platform.OS === 'web') {
@@ -23,6 +35,12 @@ export async function initializePushNotifications(): Promise<boolean> {
   initialized = true;
 
   if (!isNativePushAvailable()) {
+    enabled = false;
+    return enabled;
+  }
+
+  const Notifications = await loadNotificationsModule();
+  if (!Notifications) {
     enabled = false;
     return enabled;
   }
@@ -61,6 +79,10 @@ export async function initializePushNotifications(): Promise<boolean> {
 
 export async function notifyDevice(title: string, body: string, data?: Record<string, unknown>): Promise<void> {
   if (!(await initializePushNotifications())) {
+    return;
+  }
+  const Notifications = await loadNotificationsModule();
+  if (!Notifications) {
     return;
   }
   await Notifications.scheduleNotificationAsync({
