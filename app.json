@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "expo-app",
-    "slug": "expo-app",
+    "name": "crabbot",
+    "slug": "crabbot",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "expoapp",
+    "scheme": "crabbot",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -22,7 +22,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.kant64.expoapp"
+      "package": "com.kant64.crabbot"
     },
     "web": {
       "output": "static",
