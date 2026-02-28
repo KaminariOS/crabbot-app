@@ -24,6 +24,11 @@ export default function SessionScreen() {
   const palette = getChatGptPalette(resolvedTheme);
   const [text, setText] = useState('');
   const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
+  const [scrollMetrics, setScrollMetrics] = useState({
+    contentHeight: 1,
+    viewportHeight: 1,
+    offsetY: 0,
+  });
 
   const listRef = useRef<FlatList<TranscriptCell> | null>(null);
   const pendingInitialScrollRef = useRef(true);
@@ -77,6 +82,16 @@ export default function SessionScreen() {
 
   const statusLabel = runtime.turnId ? 'Thinking' : 'Idle';
   const statusColor = runtime.turnId ? palette.accent : palette.mutedText;
+  const showHistoryProgress = scrollMetrics.contentHeight > scrollMetrics.viewportHeight + 4;
+  const thumbHeight = showHistoryProgress
+    ? Math.max(24, (scrollMetrics.viewportHeight * scrollMetrics.viewportHeight) / scrollMetrics.contentHeight)
+    : 0;
+  const maxOffset = Math.max(0, scrollMetrics.contentHeight - scrollMetrics.viewportHeight);
+  const thumbTravel = Math.max(0, scrollMetrics.viewportHeight - thumbHeight);
+  const thumbTop =
+    showHistoryProgress && maxOffset > 0
+      ? Math.min(thumbTravel, Math.max(0, (scrollMetrics.offsetY / maxOffset) * thumbTravel))
+      : 0;
 
   const handleSend = async () => {
     const trimmed = text.trim();
@@ -153,30 +168,69 @@ export default function SessionScreen() {
         </XStack>
       </YStack>
 
-      <FlatList
-        ref={listRef}
-        data={visibleCells}
-        keyExtractor={(item) => item.id}
-        keyboardShouldPersistTaps="handled"
-        onContentSizeChange={() => {
-          if (!pendingInitialScrollRef.current) {
-            return;
+      <View style={{ flex: 1, position: 'relative' }}>
+        <FlatList
+          ref={listRef}
+          data={visibleCells}
+          keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={16}
+          onLayout={(event) => {
+            const viewportHeight = Math.max(1, event.nativeEvent.layout.height);
+            setScrollMetrics((previous) => ({ ...previous, viewportHeight }));
+          }}
+          onScroll={(event) => {
+            const offsetY = Math.max(0, event.nativeEvent.contentOffset.y);
+            setScrollMetrics((previous) => ({ ...previous, offsetY }));
+          }}
+          onContentSizeChange={(_, contentHeight) => {
+            setScrollMetrics((previous) => ({ ...previous, contentHeight: Math.max(1, contentHeight) }));
+            if (!pendingInitialScrollRef.current) {
+              return;
+            }
+            pendingInitialScrollRef.current = false;
+            requestAnimationFrame(() => {
+              listRef.current?.scrollToEnd({ animated: false });
+            });
+          }}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 14, gap: 8, flexGrow: 1 }}
+          renderItem={({ item }) => (
+            <CellRow cell={item} palette={palette} sessionId={session.id} onApproval={respondApproval} />
+          )}
+          ListEmptyComponent={
+            <YStack style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
+              <Text style={{ color: palette.mutedText }}>Start the conversation.</Text>
+            </YStack>
           }
-          pendingInitialScrollRef.current = false;
-          requestAnimationFrame(() => {
-            listRef.current?.scrollToEnd({ animated: false });
-          });
-        }}
-        contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 14, gap: 8, flexGrow: 1 }}
-        renderItem={({ item }) => (
-          <CellRow cell={item} palette={palette} sessionId={session.id} onApproval={respondApproval} />
-        )}
-        ListEmptyComponent={
-          <YStack style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
-            <Text style={{ color: palette.mutedText }}>Start the conversation.</Text>
-          </YStack>
-        }
-      />
+        />
+        {showHistoryProgress ? (
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              right: 4,
+              top: 0,
+              bottom: 0,
+              width: 4,
+              borderRadius: 999,
+              backgroundColor: palette.border,
+              opacity: 0.75,
+            }}
+          >
+            <View
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                height: thumbHeight,
+                top: thumbTop,
+                borderRadius: 999,
+                backgroundColor: palette.accent,
+              }}
+            />
+          </View>
+        ) : null}
+      </View>
 
       <KeyboardAvoidingView
         behavior={Platform.select({ ios: 'padding', android: 'height' })}
