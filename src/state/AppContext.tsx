@@ -260,6 +260,7 @@ type AppContextType = {
   respondApproval: (sessionId: string, requestKey: string, approve: boolean) => Promise<void>;
   setActiveSession: (sessionId: string) => void;
   getSessionLastUserMessage: (sessionId: string) => Promise<string | null>;
+  setSessionTitle: (sessionId: string, title: string) => void;
   dismissInAppNotification: (notificationId: string) => void;
 };
 
@@ -979,11 +980,15 @@ export function AppProvider(props: { children: React.ReactNode }) {
           (session) => session.connectionId === connectionId && session.threadId === item.id,
         );
         const now = Date.now();
+        const preferredTitle =
+          existing?.title?.trim() ||
+          item.title?.trim() ||
+          `Thread ${item.id.slice(0, 8)}`;
         const session: SessionRef = {
           id: existing?.id ?? makeId(),
           connectionId,
           threadId: item.id,
-          title: item.title ?? `Thread ${item.id.slice(0, 8)}`,
+          title: preferredTitle,
           createdAt: item.createdAt ?? existing?.createdAt ?? now,
           updatedAt: item.updatedAt ?? now,
           lastActivityAt: item.updatedAt ?? now,
@@ -1092,6 +1097,20 @@ export function AppProvider(props: { children: React.ReactNode }) {
       });
       for (const cell of hydratedCells) {
         dispatch({ type: 'append-cell', payload: { sessionId: session.id, cell } });
+      }
+      const latestUserCell = [...hydratedCells]
+        .reverse()
+        .find((cell) => cell.type === 'user' && cell.text.trim().length > 0);
+      if (latestUserCell?.type === 'user') {
+        dispatch({
+          type: 'upsert-session',
+          payload: {
+            ...session,
+            title: latestUserCell.text.trim(),
+            updatedAt: Date.now(),
+            lastActivityAt: Date.now(),
+          },
+        });
       }
       dispatch({
         type: 'append-cell',
@@ -1265,6 +1284,25 @@ export function AppProvider(props: { children: React.ReactNode }) {
     [ensureClient],
   );
 
+  const setSessionTitle = useCallback((sessionId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      return;
+    }
+    const session = stateRef.current.sessions.find((s) => s.id === sessionId);
+    if (!session || session.title === trimmed) {
+      return;
+    }
+    dispatch({
+      type: 'upsert-session',
+      payload: {
+        ...session,
+        title: trimmed,
+        updatedAt: Date.now(),
+      },
+    });
+  }, []);
+
   const contextValue = useMemo<AppContextType>(
     () => ({
       state,
@@ -1284,6 +1322,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
       respondApproval,
       setActiveSession,
       getSessionLastUserMessage,
+      setSessionTitle,
       dismissInAppNotification,
     }),
     [
@@ -1304,6 +1343,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
       respondApproval,
       setActiveSession,
       getSessionLastUserMessage,
+      setSessionTitle,
       dismissInAppNotification,
     ],
   );

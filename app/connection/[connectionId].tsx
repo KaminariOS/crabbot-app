@@ -22,6 +22,7 @@ export default function ConnectionDetailScreen() {
     resumeSession,
     setActiveSession,
     getSessionLastUserMessage,
+    setSessionTitle,
   } = useAppState();
   const { resolvedTheme } = useThemeSettings();
   const palette = getChatGptPalette(resolvedTheme);
@@ -42,13 +43,16 @@ export default function ConnectionDetailScreen() {
       sessionsToHydrate.map(async (session) => {
         try {
           const message = await getSessionLastUserMessage(session.id);
+          if (message?.trim()) {
+            setSessionTitle(session.id, message);
+          }
           setLastUserMessageBySession((current) => ({ ...current, [session.id]: message }));
         } catch {
           setLastUserMessageBySession((current) => ({ ...current, [session.id]: null }));
         }
       }),
     );
-  }, [getSessionLastUserMessage, lastUserMessageBySession, sessions]);
+  }, [getSessionLastUserMessage, lastUserMessageBySession, sessions, setSessionTitle]);
 
   if (!connection) {
     return (

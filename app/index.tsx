@@ -19,6 +19,7 @@ export default function ConnectionsScreen() {
     resumeSession,
     setActiveSession,
     getSessionLastUserMessage,
+    setSessionTitle,
   } = useAppState();
   const { resolvedTheme } = useThemeSettings();
   const palette = getChatGptPalette(resolvedTheme);
@@ -42,13 +43,16 @@ export default function ConnectionsScreen() {
       sessionsToHydrate.map(async (session) => {
         try {
           const message = await getSessionLastUserMessage(session.id);
+          if (message?.trim()) {
+            setSessionTitle(session.id, message);
+          }
           setLastUserMessageBySession((current) => ({ ...current, [session.id]: message }));
         } catch {
           setLastUserMessageBySession((current) => ({ ...current, [session.id]: null }));
         }
       }),
     );
-  }, [expandedConnectionIds, getSessionLastUserMessage, lastUserMessageBySession, state.sessions]);
+  }, [expandedConnectionIds, getSessionLastUserMessage, lastUserMessageBySession, setSessionTitle, state.sessions]);
 
   return (
     <YStack flex={1}>
