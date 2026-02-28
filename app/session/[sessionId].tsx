@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Keyboard, KeyboardAvoidingView, Platform, View } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,6 +24,7 @@ export default function SessionScreen() {
   const palette = getChatGptPalette(resolvedTheme);
   const [text, setText] = useState('');
   const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
+  const [initialPositionPhase, setInitialPositionPhase] = useState(true);
   const [scrollMetrics, setScrollMetrics] = useState({
     contentHeight: 1,
     viewportHeight: 1,
@@ -33,14 +34,27 @@ export default function SessionScreen() {
   const listRef = useRef<FlatList<TranscriptCell> | null>(null);
   const visibleCellsRef = useRef<TranscriptCell[]>([]);
   const pendingInitialPositionRef = useRef(true);
-  const skipNextAutoScrollRef = useRef(true);
+  const initialSeekIssuedRef = useRef(false);
+  const measuredHeightsRef = useRef<Record<number, number>>({});
 
   const session = state.sessions.find((item) => item.id === sessionId);
   const runtime = state.runtimes[sessionId] ?? { turnId: null, cells: [] };
   const visibleCells = useMemo(() => coalesceAssistantCells(runtime.cells), [runtime.cells]);
+  const initialTargetIndex = useMemo(() => findLatestAgentResponseStartIndex(visibleCells), [visibleCells]);
   useEffect(() => {
     visibleCellsRef.current = visibleCells;
   }, [visibleCells]);
+  useEffect(() => {
+    if (!STREAM_DEBUG) return;
+    const targetCell = initialTargetIndex >= 0 ? visibleCells[initialTargetIndex] : undefined;
+    console.log('[initial-position] target computed', {
+      sessionId,
+      initialTargetIndex,
+      targetType: targetCell?.type,
+      targetPreview: targetCell?.text?.slice(0, 80),
+      visibleCount: visibleCells.length,
+    });
+  }, [initialTargetIndex, sessionId, visibleCells]);
   useEffect(() => {
     if (!STREAM_DEBUG) return;
     const rawAssistant = runtime.cells.filter((cell) => cell.type === 'assistant').length;
@@ -62,17 +76,73 @@ export default function SessionScreen() {
   }, [session, setActiveSession]);
 
   useEffect(() => {
-    skipNextAutoScrollRef.current = true;
     pendingInitialPositionRef.current = true;
+    initialSeekIssuedRef.current = false;
+    measuredHeightsRef.current = {};
+    setInitialPositionPhase(true);
+    setScrollMetrics({ contentHeight: 1, viewportHeight: 1, offsetY: 0 });
   }, [sessionId]);
 
-  useEffect(() => {
-    if (skipNextAutoScrollRef.current) {
-      skipNextAutoScrollRef.current = false;
+  const applyInitialPosition = useCallback(() => {
+    if (!pendingInitialPositionRef.current) {
+      if (STREAM_DEBUG) {
+        console.log('[initial-position] skip: pending=false', { sessionId });
+      }
       return;
     }
-    listRef.current?.scrollToEnd({ animated: true });
-  }, [visibleCells.length]);
+    const currentCells = visibleCellsRef.current;
+    if (currentCells.length === 0) {
+      if (STREAM_DEBUG) {
+        console.log('[initial-position] wait: no cells yet', { sessionId });
+      }
+      return;
+    }
+    if (initialTargetIndex < 0 || initialTargetIndex >= visibleCellsRef.current.length) {
+      if (STREAM_DEBUG) {
+        console.log('[initial-position] wait: invalid target', {
+          sessionId,
+          initialTargetIndex,
+          visibleCount: visibleCellsRef.current.length,
+        });
+      }
+      return;
+    }
+    const measuredOffset = getMeasuredOffset(measuredHeightsRef.current, initialTargetIndex);
+    if (measuredOffset !== null) {
+      if (STREAM_DEBUG) {
+        const targetCell = visibleCellsRef.current[initialTargetIndex];
+        console.log('[initial-position] apply measured scrollToOffset', {
+          sessionId,
+          initialTargetIndex,
+          measuredOffset,
+          targetType: targetCell?.type,
+          targetPreview: targetCell?.text?.slice(0, 80),
+        });
+      }
+      pendingInitialPositionRef.current = false;
+      setInitialPositionPhase(false);
+      listRef.current?.scrollToOffset({
+        offset: Math.max(0, measuredOffset),
+        animated: false,
+      });
+      return;
+    }
+    if (initialSeekIssuedRef.current) {
+      if (STREAM_DEBUG) {
+        console.log('[initial-position] waiting for target layout', { sessionId, initialTargetIndex });
+      }
+      return;
+    }
+    initialSeekIssuedRef.current = true;
+    if (STREAM_DEBUG) {
+      console.log('[initial-position] seek near end to materialize target row', {
+        sessionId,
+        initialTargetIndex,
+        visibleCount: visibleCellsRef.current.length,
+      });
+    }
+    listRef.current?.scrollToEnd({ animated: false });
+  }, [initialTargetIndex, sessionId]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -178,60 +248,60 @@ export default function SessionScreen() {
         </XStack>
       </YStack>
 
-      <View style={{ flex: 1, position: 'relative' }}>
+      <View
+        style={{ flex: 1, position: 'relative' }}
+        onLayout={(event) => {
+          const viewportHeight = Math.max(1, event.nativeEvent.layout.height);
+          setScrollMetrics((previous) => ({ ...previous, viewportHeight }));
+        }}
+      >
         <FlatList
           ref={listRef}
           data={visibleCells}
+          initialNumToRender={initialPositionPhase ? Math.max(1, visibleCells.length) : 12}
+          maxToRenderPerBatch={initialPositionPhase ? Math.max(1, visibleCells.length) : 12}
+          windowSize={initialPositionPhase ? 100 : 21}
+          removeClippedSubviews={!initialPositionPhase}
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           scrollEventThrottle={16}
-          onScrollToIndexFailed={(info) => {
-            const currentLength = visibleCellsRef.current.length;
-            if (currentLength <= 0) {
-              return;
-            }
-            const safeIndex = Math.min(Math.max(0, info.index), currentLength - 1);
-            // Variable-height rows can make the first index jump fail before enough cells are measured.
-            listRef.current?.scrollToOffset({
-              offset: Math.max(0, info.averageItemLength * safeIndex),
-              animated: false,
-            });
-            pendingInitialPositionRef.current = false;
-          }}
-          onScrollBeginDrag={() => {
-            pendingInitialPositionRef.current = false;
-          }}
-          onLayout={(event) => {
-            const viewportHeight = Math.max(1, event.nativeEvent.layout.height);
-            setScrollMetrics((previous) => ({ ...previous, viewportHeight }));
-          }}
           onScroll={(event) => {
             const offsetY = Math.max(0, event.nativeEvent.contentOffset.y);
             setScrollMetrics((previous) => ({ ...previous, offsetY }));
           }}
           onContentSizeChange={(_, contentHeight) => {
             setScrollMetrics((previous) => ({ ...previous, contentHeight: Math.max(1, contentHeight) }));
-            if (!pendingInitialPositionRef.current) {
-              return;
-            }
-            const currentCells = visibleCellsRef.current;
-            const latestAgentResponseStartIndex = findLatestAgentResponseStartIndex(currentCells);
-            if (latestAgentResponseStartIndex < 0 || latestAgentResponseStartIndex >= currentCells.length) {
-              pendingInitialPositionRef.current = false;
-              return;
-            }
-            pendingInitialPositionRef.current = false;
-            requestAnimationFrame(() => {
-              listRef.current?.scrollToIndex({
-                index: latestAgentResponseStartIndex,
-                animated: false,
-                viewPosition: 0,
+            if (STREAM_DEBUG) {
+              console.log('[initial-position] onContentSizeChange', {
+                sessionId,
+                contentHeight,
+                visibleCount: visibleCellsRef.current.length,
+                initialTargetIndex,
               });
-            });
+            }
+            applyInitialPosition();
           }}
           contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 14, gap: 8, flexGrow: 1 }}
-          renderItem={({ item }) => (
-            <CellRow cell={item} palette={palette} sessionId={session.id} onApproval={respondApproval} />
+          renderItem={({ item, index }) => (
+            <View
+              onLayout={(event) => {
+                const rowHeight = Math.max(0, event.nativeEvent.layout.height);
+                measuredHeightsRef.current[index] = rowHeight;
+                if (STREAM_DEBUG) {
+                  console.log('[initial-position] row measured', {
+                    sessionId,
+                    index,
+                    rowHeight,
+                    isTarget: index === initialTargetIndex,
+                  });
+                }
+                if (index === initialTargetIndex) {
+                  applyInitialPosition();
+                }
+              }}
+            >
+              <CellRow cell={item} palette={palette} sessionId={session.id} onApproval={respondApproval} />
+            </View>
           )}
           ListEmptyComponent={
             <YStack style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
@@ -311,47 +381,63 @@ export default function SessionScreen() {
 }
 
 function coalesceAssistantCells(cells: TranscriptCell[]): TranscriptCell[] {
-  const visible = cells.filter((cell) => cell.type !== 'status');
   const merged: TranscriptCell[] = [];
-  for (const cell of visible) {
+  let brokeByHiddenStatus = false;
+  for (const cell of cells) {
+    if (cell.type === 'status') {
+      // Hidden status rows must still break assistant coalescing so responses remain distinct.
+      brokeByHiddenStatus = true;
+      continue;
+    }
     const prev = merged[merged.length - 1];
-    if (cell.type === 'assistant' && prev?.type === 'assistant') {
+    if (cell.type === 'assistant' && prev?.type === 'assistant' && !brokeByHiddenStatus) {
       prev.text = `${prev.text}${cell.text}`;
       if (!prev.turnId && cell.turnId) {
         prev.turnId = cell.turnId;
       }
+      brokeByHiddenStatus = false;
       continue;
     }
     merged.push({ ...cell });
+    brokeByHiddenStatus = false;
   }
   return merged;
 }
 
-function findLastUserIndex(cells: TranscriptCell[]): number {
-  for (let index = cells.length - 1; index >= 0; index -= 1) {
-    if (cells[index]?.type === 'user') {
-      return index;
+function getMeasuredOffset(heightsByIndex: Record<number, number>, targetIndex: number): number | null {
+  const TOP_PADDING = 14;
+  const ROW_GAP = 8;
+  let total = TOP_PADDING;
+  for (let index = 0; index < targetIndex; index += 1) {
+    const height = heightsByIndex[index];
+    if (typeof height !== 'number') {
+      return null;
     }
+    total += height + ROW_GAP;
   }
-  return -1;
+  return total;
 }
 
 function findLatestAgentResponseStartIndex(cells: TranscriptCell[]): number {
-  const lastUserIndex = findLastUserIndex(cells);
-  if (lastUserIndex >= 0) {
-    for (let index = lastUserIndex + 1; index < cells.length; index += 1) {
-      if (cells[index]?.type === 'assistant') {
-        return index;
-      }
-    }
-  }
-
+  let endIndex = -1;
   for (let index = cells.length - 1; index >= 0; index -= 1) {
     if (cells[index]?.type === 'assistant') {
-      return index;
+      endIndex = index;
+      break;
     }
   }
-  return -1;
+  if (endIndex < 0) {
+    return -1;
+  }
+  let startIndex = endIndex;
+  for (let index = endIndex - 1; index >= 0; index -= 1) {
+    if (cells[index]?.type === 'assistant') {
+      startIndex = index;
+    } else {
+      break;
+    }
+  }
+  return startIndex;
 }
 
 function CellRow(props: {

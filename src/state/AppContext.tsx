@@ -45,6 +45,7 @@ type AppAction =
   | { type: 'append-cell'; payload: { sessionId: string; cell: TranscriptCell } }
   | { type: 'append-assistant-delta'; payload: { sessionId: string; turnId?: string; delta: string } }
   | { type: 'patch-cell'; payload: { sessionId: string; cellId: string; patch: Partial<TranscriptCell> } }
+  | { type: 'set-runtime-cells'; payload: { sessionId: string; cells: TranscriptCell[]; turnId?: string | null } }
   | { type: 'set-turn'; payload: { sessionId: string; turnId: string | null } }
   | { type: 'reset-runtime'; payload: { sessionId: string } };
 
@@ -215,6 +216,19 @@ function reducer(state: AppState, action: AppAction): AppState {
             cells: runtime.cells.map((cell) =>
               cell.id === action.payload.cellId ? ({ ...cell, ...action.payload.patch } as TranscriptCell) : cell,
             ),
+          },
+        },
+      };
+    }
+    case 'set-runtime-cells': {
+      const runtime = state.runtimes[action.payload.sessionId] ?? { turnId: null, cells: [] };
+      return {
+        ...state,
+        runtimes: {
+          ...state.runtimes,
+          [action.payload.sessionId]: {
+            turnId: action.payload.turnId === undefined ? runtime.turnId : action.payload.turnId,
+            cells: action.payload.cells,
           },
         },
       };
@@ -1095,9 +1109,20 @@ export function AppProvider(props: { children: React.ReactNode }) {
         hydratedCellCount: hydratedCells.length,
         rawKeys: raw && typeof raw === 'object' ? Object.keys(raw as Record<string, unknown>) : [],
       });
-      for (const cell of hydratedCells) {
-        dispatch({ type: 'append-cell', payload: { sessionId: session.id, cell } });
-      }
+      const resumedStatusCell: TranscriptCell = {
+        id: makeId(),
+        type: 'status',
+        text: `Resumed thread ${session.threadId}`,
+        createdAt: Date.now(),
+      };
+      dispatch({
+        type: 'set-runtime-cells',
+        payload: {
+          sessionId: session.id,
+          turnId: null,
+          cells: [...hydratedCells, resumedStatusCell],
+        },
+      });
       const latestUserCell = [...hydratedCells]
         .reverse()
         .find((cell) => cell.type === 'user' && cell.text.trim().length > 0);
@@ -1112,18 +1137,6 @@ export function AppProvider(props: { children: React.ReactNode }) {
           },
         });
       }
-      dispatch({
-        type: 'append-cell',
-        payload: {
-          sessionId: session.id,
-          cell: {
-            id: makeId(),
-            type: 'status',
-            text: `Resumed thread ${session.threadId}`,
-            createdAt: Date.now(),
-          },
-        },
-      });
     },
     [ensureClient],
   );
