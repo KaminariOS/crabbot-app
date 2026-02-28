@@ -32,9 +32,8 @@ export default function SessionScreen() {
 
   const listRef = useRef<FlatList<TranscriptCell> | null>(null);
   const visibleCellsRef = useRef<TranscriptCell[]>([]);
-  const pendingInitialScrollRef = useRef(true);
-  const initialHydrationLockRef = useRef(true);
-  const hydrationUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingInitialPositionRef = useRef(true);
+  const skipNextAutoScrollRef = useRef(true);
 
   const session = state.sessions.find((item) => item.id === sessionId);
   const runtime = state.runtimes[sessionId] ?? { turnId: null, cells: [] };
@@ -63,29 +62,17 @@ export default function SessionScreen() {
   }, [session, setActiveSession]);
 
   useEffect(() => {
-    pendingInitialScrollRef.current = true;
-    initialHydrationLockRef.current = true;
-    if (hydrationUnlockTimerRef.current) {
-      clearTimeout(hydrationUnlockTimerRef.current);
-      hydrationUnlockTimerRef.current = null;
-    }
+    skipNextAutoScrollRef.current = true;
+    pendingInitialPositionRef.current = true;
   }, [sessionId]);
 
   useEffect(() => {
-    if (pendingInitialScrollRef.current || initialHydrationLockRef.current) {
+    if (skipNextAutoScrollRef.current) {
+      skipNextAutoScrollRef.current = false;
       return;
     }
     listRef.current?.scrollToEnd({ animated: true });
   }, [visibleCells.length]);
-
-  useEffect(() => {
-    return () => {
-      if (hydrationUnlockTimerRef.current) {
-        clearTimeout(hydrationUnlockTimerRef.current);
-        hydrationUnlockTimerRef.current = null;
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -209,18 +196,10 @@ export default function SessionScreen() {
               offset: Math.max(0, info.averageItemLength * safeIndex),
               animated: false,
             });
-            requestAnimationFrame(() => {
-              const latestLength = visibleCellsRef.current.length;
-              if (latestLength <= 0) {
-                return;
-              }
-              const retryIndex = Math.min(Math.max(0, safeIndex), latestLength - 1);
-              listRef.current?.scrollToIndex({
-                index: retryIndex,
-                animated: false,
-                viewPosition: 0,
-              });
-            });
+            pendingInitialPositionRef.current = false;
+          }}
+          onScrollBeginDrag={() => {
+            pendingInitialPositionRef.current = false;
           }}
           onLayout={(event) => {
             const viewportHeight = Math.max(1, event.nativeEvent.layout.height);
@@ -232,34 +211,22 @@ export default function SessionScreen() {
           }}
           onContentSizeChange={(_, contentHeight) => {
             setScrollMetrics((previous) => ({ ...previous, contentHeight: Math.max(1, contentHeight) }));
-            if (!pendingInitialScrollRef.current) {
+            if (!pendingInitialPositionRef.current) {
               return;
             }
-            pendingInitialScrollRef.current = false;
-            const latestAgentResponseStartIndex = findLatestAgentResponseStartIndex(visibleCells);
+            const currentCells = visibleCellsRef.current;
+            const latestAgentResponseStartIndex = findLatestAgentResponseStartIndex(currentCells);
+            if (latestAgentResponseStartIndex < 0 || latestAgentResponseStartIndex >= currentCells.length) {
+              pendingInitialPositionRef.current = false;
+              return;
+            }
+            pendingInitialPositionRef.current = false;
             requestAnimationFrame(() => {
-              const currentLength = visibleCellsRef.current.length;
-              if (latestAgentResponseStartIndex >= 0 && latestAgentResponseStartIndex < currentLength) {
-                listRef.current?.scrollToIndex({
-                  index: latestAgentResponseStartIndex,
-                  animated: false,
-                  viewPosition: 0,
-                });
-                if (hydrationUnlockTimerRef.current) {
-                  clearTimeout(hydrationUnlockTimerRef.current);
-                }
-                hydrationUnlockTimerRef.current = setTimeout(() => {
-                  initialHydrationLockRef.current = false;
-                }, 500);
-                return;
-              }
-              listRef.current?.scrollToEnd({ animated: false });
-              if (hydrationUnlockTimerRef.current) {
-                clearTimeout(hydrationUnlockTimerRef.current);
-              }
-              hydrationUnlockTimerRef.current = setTimeout(() => {
-                initialHydrationLockRef.current = false;
-              }, 500);
+              listRef.current?.scrollToIndex({
+                index: latestAgentResponseStartIndex,
+                animated: false,
+                viewPosition: 0,
+              });
             });
           }}
           contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 14, gap: 8, flexGrow: 1 }}
