@@ -1,6 +1,6 @@
 import type { DaemonRpcNotification, DaemonRpcServerRequest } from './types';
 
-const STREAM_DEBUG = true;
+const STREAM_DEBUG = false;
 
 export type ParsedEvent =
   | { type: 'turn-started'; turnId: string }

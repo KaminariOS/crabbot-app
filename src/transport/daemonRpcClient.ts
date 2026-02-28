@@ -32,6 +32,7 @@ const LEGACY_NOTIFICATIONS_TO_OPT_OUT = [
   'codex/event/item_started',
   'codex/event/item_completed',
 ] as const;
+const RPC_DEBUG = false;
 
 export class DaemonRpcClient {
   private ws: WebSocket | null = null;
@@ -323,6 +324,9 @@ export class DaemonRpcClient {
   }
 
   private debug(event: string, data?: unknown) {
+    if (!RPC_DEBUG) {
+      return;
+    }
     if (data === undefined) {
       console.log(`[${this.debugLabel}] ${event}`);
       return;

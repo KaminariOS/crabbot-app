@@ -10,7 +10,7 @@ const STORAGE_KEY = 'crabbot_android_state_v1';
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const THREAD_DISCOVERY_INTERVAL_MS = 15000;
-const STREAM_DEBUG = true;
+const STREAM_DEBUG = false;
 
 function normalizeForDedupe(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
@@ -698,10 +698,14 @@ export function AppProvider(props: { children: React.ReactNode }) {
         const url = connection?.websocketUrl;
         const status = existing.getStatus();
         if (url && (status === 'disconnected' || status === 'error')) {
-          console.log('[connection] reconnect existing client', { connectionId, status, url });
+          if (STREAM_DEBUG) {
+            console.log('[connection] reconnect existing client', { connectionId, status, url });
+          }
           existing.connect(url);
         } else {
-          console.log('[connection] reuse client', { connectionId, status });
+          if (STREAM_DEBUG) {
+            console.log('[connection] reuse client', { connectionId, status });
+          }
         }
         return existing;
       }
@@ -713,7 +717,9 @@ export function AppProvider(props: { children: React.ReactNode }) {
 
       const client = new DaemonRpcClient(`conn:${connectionId.slice(0, 8)}`);
       client.onConnectionState = (status, err) => {
-        console.log('[connection] state', { connectionId, status, err });
+        if (STREAM_DEBUG) {
+          console.log('[connection] state', { connectionId, status, err });
+        }
         dispatch({ type: 'set-connection-status', payload: { connectionId, status, errorMessage: err } });
 
         if (status === 'connected') {
@@ -738,7 +744,9 @@ export function AppProvider(props: { children: React.ReactNode }) {
           const attempt = reconnectAttemptsRef.current.get(connectionId) ?? 0;
           const exponentialDelay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** attempt, RECONNECT_MAX_DELAY_MS);
           const jitteredDelay = Math.round(exponentialDelay * (0.85 + Math.random() * 0.3));
-          console.log('[connection] schedule reconnect', { connectionId, attempt: attempt + 1, delayMs: jitteredDelay });
+          if (STREAM_DEBUG) {
+            console.log('[connection] schedule reconnect', { connectionId, attempt: attempt + 1, delayMs: jitteredDelay });
+          }
 
           const timer = setTimeout(() => {
             reconnectTimersRef.current.delete(connectionId);
@@ -754,7 +762,9 @@ export function AppProvider(props: { children: React.ReactNode }) {
 
             reconnectAttemptsRef.current.set(connectionId, attempt + 1);
             void ensureClient(connectionId).catch((error) => {
-              console.log('[connection] reconnect timer connect failed', { connectionId, error });
+              if (STREAM_DEBUG) {
+                console.log('[connection] reconnect timer connect failed', { connectionId, error });
+              }
             });
           }, jitteredDelay);
 
@@ -762,33 +772,41 @@ export function AppProvider(props: { children: React.ReactNode }) {
         }
       };
       client.onRawMessage = (raw) => {
-        console.log('[connection] raw message', {
-          connectionId,
-          size: raw.length,
-          preview: raw.slice(0, 300),
-        });
+        if (STREAM_DEBUG) {
+          console.log('[connection] raw message', {
+            connectionId,
+            size: raw.length,
+            preview: raw.slice(0, 300),
+          });
+        }
       };
       client.onNotification = (notification) => {
-        console.log('[connection] notification', { connectionId, method: notification.method });
+        if (STREAM_DEBUG) {
+          console.log('[connection] notification', { connectionId, method: notification.method });
+        }
         for (const parsed of parseNotification(notification)) {
           applyParsedEvent(connectionId, parsed);
         }
       };
       client.onServerRequest = (request) => {
         const parsedEvents = parseServerRequest(request);
-        console.log('[connection] server request', {
-          connectionId,
-          method: request.method,
-          requestIdType: typeof request.request_id,
-          parsedCount: parsedEvents.length,
-          paramKeys: Object.keys(request.params ?? {}),
-        });
+        if (STREAM_DEBUG) {
+          console.log('[connection] server request', {
+            connectionId,
+            method: request.method,
+            requestIdType: typeof request.request_id,
+            parsedCount: parsedEvents.length,
+            paramKeys: Object.keys(request.params ?? {}),
+          });
+        }
         for (const parsed of parsedEvents) {
           applyParsedEvent(connectionId, parsed);
         }
       };
       client.onDecodeError = (decodeError) => {
-        console.log('[connection] decode error', { connectionId, decodeError });
+        if (STREAM_DEBUG) {
+          console.log('[connection] decode error', { connectionId, decodeError });
+        }
         applyParsedEvent(connectionId, {
           type: 'status',
           text: `[decode error] ${decodeError.message}`,
@@ -809,7 +827,9 @@ export function AppProvider(props: { children: React.ReactNode }) {
       try {
         await ensureClient(connectionId);
       } catch (error) {
-        console.log('[connection] connect failed', { connectionId, error });
+        if (STREAM_DEBUG) {
+          console.log('[connection] connect failed', { connectionId, error });
+        }
         dispatch({
           type: 'set-connection-status',
           payload: {
@@ -981,7 +1001,9 @@ export function AppProvider(props: { children: React.ReactNode }) {
           archived: false,
         })) as { data?: { id?: string; title?: string; updatedAt?: number; createdAt?: number }[] };
       } catch (error) {
-        console.log('[rpc] thread/list failed', { connectionId, error });
+        if (STREAM_DEBUG) {
+          console.log('[rpc] thread/list failed', { connectionId, error });
+        }
         throw error;
       }
 
@@ -1031,7 +1053,9 @@ export function AppProvider(props: { children: React.ReactNode }) {
         await discoverSessions(connectionId);
         lastSessionDiscoveryAtRef.current.set(connectionId, Date.now());
       } catch (error) {
-        console.log('[thread] auto discover failed', { connectionId, error });
+        if (STREAM_DEBUG) {
+          console.log('[thread] auto discover failed', { connectionId, error });
+        }
       } finally {
         sessionDiscoveryInFlightRef.current.delete(connectionId);
       }
@@ -1103,12 +1127,14 @@ export function AppProvider(props: { children: React.ReactNode }) {
 
       const raw = await client.sendRequest('thread/resume', { threadId: session.threadId });
       const hydratedCells = extractTranscriptCellsFromResumeResponse(raw);
-      console.log('[resume] thread/resume hydration', {
-        sessionId: session.id,
-        threadId: session.threadId,
-        hydratedCellCount: hydratedCells.length,
-        rawKeys: raw && typeof raw === 'object' ? Object.keys(raw as Record<string, unknown>) : [],
-      });
+      if (STREAM_DEBUG) {
+        console.log('[resume] thread/resume hydration', {
+          sessionId: session.id,
+          threadId: session.threadId,
+          hydratedCellCount: hydratedCells.length,
+          rawKeys: raw && typeof raw === 'object' ? Object.keys(raw as Record<string, unknown>) : [],
+        });
+      }
       const resumedStatusCell: TranscriptCell = {
         id: makeId(),
         type: 'status',
@@ -1198,7 +1224,9 @@ export function AppProvider(props: { children: React.ReactNode }) {
           input: [{ type: 'text', text, text_elements: [] }],
         })) as { turn?: { id?: string } };
       } catch (error) {
-        console.log('[rpc] turn/start failed', { sessionId, threadId: session.threadId, error });
+        if (STREAM_DEBUG) {
+          console.log('[rpc] turn/start failed', { sessionId, threadId: session.threadId, error });
+        }
         dispatch({
           type: 'append-cell',
           payload: {

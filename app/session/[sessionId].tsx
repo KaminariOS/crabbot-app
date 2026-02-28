@@ -11,7 +11,7 @@ import { useAppState } from '@/src/state/AppContext';
 import { useThemeSettings } from '@/src/state/ThemeContext';
 import { getChatGptPalette, type ChatGptPalette } from '@/src/ui/chatgpt';
 
-const STREAM_DEBUG = true;
+const STREAM_DEBUG = false;
 
 export default function SessionScreen() {
   const params = useLocalSearchParams<{ sessionId: string }>();
