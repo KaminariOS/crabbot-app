@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 import type { AppState, Connection, SessionRef, TranscriptCell } from '@/src/domain/types';
+import { initializePushNotifications, isNativePushAvailable, notifyDevice } from '@/src/notifications/pushNotifications';
 import { DaemonRpcClient } from '@/src/transport/daemonRpcClient';
 import { approvalDecisionForMethod, parseNotification, parseServerRequest, type ParsedEvent } from '@/src/transport/eventParser';
 
@@ -302,6 +303,18 @@ export function AppProvider(props: { children: React.ReactNode }) {
     void AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
+  useEffect(() => {
+    void (async () => {
+      const available = await initializePushNotifications();
+      if (STREAM_DEBUG) {
+        console.log('[notifications] init', {
+          available,
+          nativeAvailable: isNativePushAvailable(),
+        });
+      }
+    })();
+  }, []);
+
   const clearReconnectTimer = useCallback((connectionId: string) => {
     const timer = reconnectTimersRef.current.get(connectionId);
     if (timer) {
@@ -509,6 +522,11 @@ export function AppProvider(props: { children: React.ReactNode }) {
         title: 'Agent turn completed',
         body: `${connectionName} · ${session.title} (${event.status})`,
       });
+      void notifyDevice('Agent turn completed', `${connectionName} · ${session.title} (${event.status})`, {
+        kind: 'turn-completed',
+        sessionId: session.id,
+        connectionId,
+      });
       return;
     }
 
@@ -634,6 +652,16 @@ export function AppProvider(props: { children: React.ReactNode }) {
         title: 'Agent needs approval',
         body: event.reason?.trim() || `${connectionName} · ${session.title} requested ${event.method}`,
       });
+      void notifyDevice(
+        'Agent needs approval',
+        event.reason?.trim() || `${connectionName} · ${session.title} requested ${event.method}`,
+        {
+          kind: 'approval',
+          sessionId: session.id,
+          connectionId,
+          method: event.method,
+        },
+      );
     }
   }, [enqueueInAppNotification]);
 
