@@ -58,7 +58,8 @@ export default function ConnectionsScreen() {
             <Paragraph style={{ color: palette.mutedText }}>No terminals yet. Add one by QR scan or manual URL input.</Paragraph>
           ) : (
             state.connections.map((connection) => {
-              const isExpanded = Boolean(expandedConnectionIds[connection.id]);
+              const isExpanded =
+                state.connections.length === 1 ? true : Boolean(expandedConnectionIds[connection.id]);
               const sessions = state.sessions
                 .filter((session) => session.connectionId === connection.id)
                 .sort((a, b) => b.updatedAt - a.updatedAt);
