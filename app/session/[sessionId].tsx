@@ -61,6 +61,9 @@ export default function SessionScreen() {
   }, [sessionId]);
 
   useEffect(() => {
+    if (pendingInitialScrollRef.current) {
+      return;
+    }
     listRef.current?.scrollToEnd({ animated: true });
   }, [visibleCells.length]);
 
@@ -175,6 +178,20 @@ export default function SessionScreen() {
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           scrollEventThrottle={16}
+          onScrollToIndexFailed={(info) => {
+            // Variable-height rows can make the first index jump fail before enough cells are measured.
+            listRef.current?.scrollToOffset({
+              offset: Math.max(0, info.averageItemLength * info.index),
+              animated: false,
+            });
+            requestAnimationFrame(() => {
+              listRef.current?.scrollToIndex({
+                index: info.index,
+                animated: false,
+                viewPosition: 1,
+              });
+            });
+          }}
           onLayout={(event) => {
             const viewportHeight = Math.max(1, event.nativeEvent.layout.height);
             setScrollMetrics((previous) => ({ ...previous, viewportHeight }));
@@ -189,7 +206,16 @@ export default function SessionScreen() {
               return;
             }
             pendingInitialScrollRef.current = false;
+            const latestAgentResponseStartIndex = findLatestAgentResponseStartIndex(visibleCells);
             requestAnimationFrame(() => {
+              if (latestAgentResponseStartIndex >= 0) {
+                listRef.current?.scrollToIndex({
+                  index: latestAgentResponseStartIndex,
+                  animated: false,
+                  viewPosition: 0,
+                });
+                return;
+              }
               listRef.current?.scrollToEnd({ animated: false });
             });
           }}
@@ -289,6 +315,33 @@ function coalesceAssistantCells(cells: TranscriptCell[]): TranscriptCell[] {
     merged.push({ ...cell });
   }
   return merged;
+}
+
+function findLastUserIndex(cells: TranscriptCell[]): number {
+  for (let index = cells.length - 1; index >= 0; index -= 1) {
+    if (cells[index]?.type === 'user') {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function findLatestAgentResponseStartIndex(cells: TranscriptCell[]): number {
+  const lastUserIndex = findLastUserIndex(cells);
+  if (lastUserIndex >= 0) {
+    for (let index = lastUserIndex + 1; index < cells.length; index += 1) {
+      if (cells[index]?.type === 'assistant') {
+        return index;
+      }
+    }
+  }
+
+  for (let index = cells.length - 1; index >= 0; index -= 1) {
+    if (cells[index]?.type === 'assistant') {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function CellRow(props: {
