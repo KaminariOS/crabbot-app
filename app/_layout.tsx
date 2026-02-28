@@ -49,6 +49,7 @@ function RootContent() {
             <Stack.Screen name="connection/edit/[connectionId]" options={{ title: 'Edit Connection' }} />
             <Stack.Screen name="connection/[connectionId]" options={{ title: 'Connection' }} />
             <Stack.Screen name="session/[sessionId]" options={{ title: 'Session' }} />
+            <Stack.Screen name="thread/[threadId]" options={{ title: 'Open Thread' }} />
           </Stack>
           <InAppNotificationOverlay />
           <Link href={'/settings' as never} asChild>
