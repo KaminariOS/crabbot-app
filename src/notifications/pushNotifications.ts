@@ -67,9 +67,12 @@ export async function initializePushNotifications(): Promise<boolean> {
   }
 
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'Default',
-      importance: Notifications.AndroidImportance.DEFAULT,
+    await Notifications.setNotificationChannelAsync('high-priority', {
+      name: 'High Priority',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 800, 250, 800],
+      enableVibrate: true,
+      sound: 'default',
     });
   }
 
@@ -90,6 +93,9 @@ export async function notifyDevice(title: string, body: string, data?: Record<st
       title,
       body,
       data,
+      sound: 'default',
+      priority: Notifications.AndroidNotificationPriority.HIGH,
+      ...(Platform.OS === 'android' ? { channelId: 'high-priority' } : {}),
     },
     trigger: null,
   });

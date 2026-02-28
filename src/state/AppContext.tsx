@@ -16,6 +16,14 @@ function normalizeForDedupe(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+function truncateNotificationText(text: string, maxLength = 220): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
 const initialState: AppState = {
   connections: [],
   sessions: [],
@@ -522,7 +530,9 @@ export function AppProvider(props: { children: React.ReactNode }) {
         title: 'Agent turn completed',
         body: `${connectionName} · ${session.title} (${event.status})`,
       });
-      void notifyDevice('Agent turn completed', `${connectionName} · ${session.title} (${event.status})`, {
+      const latestAssistantResponse =
+        lastAssistantText?.type === 'assistant' ? truncateNotificationText(lastAssistantText.text) : 'Response completed';
+      void notifyDevice(session.title, latestAssistantResponse, {
         kind: 'turn-completed',
         sessionId: session.id,
         connectionId,
