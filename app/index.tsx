@@ -1,6 +1,6 @@
 import { Link, useRouter } from 'expo-router';
 import React from 'react';
-import { Alert, Modal, Pressable, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, View } from 'react-native';
 import { Button, Card, Paragraph, ScrollView, Text, XStack, YStack } from 'tamagui';
 
 import { useAppState } from '@/src/state/AppContext';
@@ -25,6 +25,7 @@ export default function ConnectionsScreen() {
   const [menuConnectionId, setMenuConnectionId] = React.useState<string | null>(null);
   const [expandedConnectionIds, setExpandedConnectionIds] = React.useState<Record<string, boolean>>({});
   const [lastUserMessageBySession, setLastUserMessageBySession] = React.useState<Record<string, string | null>>({});
+  const [loadingSessionId, setLoadingSessionId] = React.useState<string | null>(null);
   const menuConnection = menuConnectionId ? state.connections.find((connection) => connection.id === menuConnectionId) ?? null : null;
 
   React.useEffect(() => {
@@ -150,14 +151,18 @@ export default function ConnectionsScreen() {
                           return (
                             <Pressable
                               key={session.id}
+                              disabled={loadingSessionId === session.id}
                               onPress={() => {
                                 void (async () => {
+                                  setLoadingSessionId(session.id);
                                   try {
                                     await resumeSession(session.id);
                                     setActiveSession(session.id);
                                     router.push(`/session/${session.id}` as never);
                                   } catch (error) {
                                     Alert.alert('Resume failed', error instanceof Error ? error.message : 'Unknown resume error');
+                                  } finally {
+                                    setLoadingSessionId((current) => (current === session.id ? null : current));
                                   }
                                 })();
                               }}
@@ -173,6 +178,14 @@ export default function ConnectionsScreen() {
                                   <Paragraph size="$2" style={{ color: palette.mutedText }}>
                                     state: {session.state}
                                   </Paragraph>
+                                  {loadingSessionId === session.id ? (
+                                    <XStack style={{ alignItems: 'center', gap: 8 }}>
+                                      <ActivityIndicator size="small" color={palette.accent} />
+                                      <Paragraph size="$2" style={{ color: palette.accent }}>
+                                        Loading…
+                                      </Paragraph>
+                                    </XStack>
+                                  ) : null}
                                 </Card.Header>
                               </Card>
                             </Pressable>
