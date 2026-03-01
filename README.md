@@ -1,50 +1,123 @@
-# Welcome to your Expo app 👋
+# Crabbot Expo App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+React Native + Expo client for Codex daemon sessions over WebSocket, targeting Android and Web parity.
 
-## Get started
+This app is the step-by-step port of the `~/repos/crabbot` TUI into a mobile/web UX in `expo-app`.
 
-1. Install dependencies
+## What It Does
 
-   ```bash
-   npm install
-   ```
+- Manages multiple daemon connections (`ws://` / `wss://`)
+- Auto-connects and auto-reconnects with backoff
+- Discovers threads periodically and maps them to local sessions
+- Resumes threads and hydrates transcript history
+- Sends user turns and renders streaming assistant deltas
+- Renders tool execution blocks and approval requests
+- Supports approve/deny actions for server requests
+- Shows in-app banners for approvals / turn completion
+- Schedules native local notifications when available
+- Supports deep links for `crabbot://thread/<thread-id>` and `/thread/<thread-id>`
+- Persists app state and theme preference with AsyncStorage
 
-2. Start the app
+## Tech Stack
 
-   ```bash
-   npx expo start
-   ```
+- Expo SDK 54 + Expo Router
+- React Native 0.81 / React 19
+- Tamagui for UI primitives
+- `expo-notifications` for local notification delivery
+- `expo-camera` for QR-based connection setup
+- `react-native-markdown-display` for assistant markdown rendering
 
-In the output, you'll find options to open the app in a
+## Project Structure
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+- `app/_layout.tsx`: Root providers, stack routes, top-right settings button, in-app notification overlay
+- `app/index.tsx`: Main Terminals screen (connections + sessions list, resume/refresh/connect/disconnect actions)
+- `app/connection/new.tsx`: Add connection (manual URL + QR scan)
+- `app/connection/edit/[connectionId].tsx`: Edit connection details
+- `app/connection/[connectionId].tsx`: Per-connection session management
+- `app/session/[sessionId].tsx`: Chat runtime UI (streaming, approvals, tool output)
+- `app/thread/[threadId].tsx`: Thread deep-link resolution + redirect into session
+- `app/+native-intent.tsx`: Native intent path normalization for thread links
+- `src/state/AppContext.tsx`: Core state machine, transport orchestration, reconnect/session lifecycle
+- `src/transport/daemonRpcClient.ts`: JSON-RPC over WebSocket client + initialization handshake
+- `src/transport/eventParser.ts`: Parses daemon notifications/server-requests into UI events
+- `src/notifications/pushNotifications.ts`: Native notification init + delivery helpers
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## Daemon RPC Methods Used
 
-## Get a fresh project
+The app currently uses these request methods against the Codex app-server:
 
-When you're ready, run:
+- `initialize`
+- `thread/start`
+- `thread/list`
+- `thread/read`
+- `thread/resume`
+- `thread/fork`
+- `turn/start`
+- `turn/interrupt`
+
+It also handles streaming notifications and server approval requests across both modern and legacy event formats.
+
+## Requirements
+
+- Node.js + npm
+- Expo CLI (`npx expo ...`)
+- A reachable Codex daemon WebSocket endpoint
+
+For Android device testing, use a development build when you need full native notification behavior.
+
+## Run Locally
+
+1. Install dependencies:
 
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+2. Start Expo:
 
-## Learn more
+```bash
+npm run start
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+3. Open targets:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+npm run android
+npm run web
+```
 
-## Join the community
+## Usage Flow
 
-Join our community of developers creating universal apps.
+1. Open **Terminals**.
+2. Add a connection via:
+- manual `ws://` or `wss://` URL, or
+- QR code scan.
+3. Connect and either:
+- Resume latest session, or
+- Create / discover sessions from daemon threads.
+4. Open a session and send messages.
+5. Handle approval cards (Approve/Deny) when daemon requests input.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Configuration Notes
+
+- Android cleartext traffic is enabled via `plugins/withAndroidCleartext.js`.
+- App scheme is `crabbot` (see `app.json`).
+- Push token registration endpoint is derived from WebSocket origin as:
+  - `ws://...` -> `http://.../v1/notifications/register`
+  - `wss://...` -> `https://.../v1/notifications/register`
+
+## Current State
+
+This repository still contains some Expo template files (for example `app/(tabs)/*`, `app/modal.tsx`) that are not part of the primary stack flow used by the current Crabbot experience.
+
+## Scripts
+
+- `npm run start`: Start Expo dev server
+- `npm run android`: Launch Android target
+- `npm run ios`: Launch iOS target
+- `npm run web`: Launch web target
+- `npm run lint`: Run Expo lint
+
+## Migration Goal
+
+Keep Android and Web feature parity while iteratively porting TUI behaviors from `~/repos/crabbot` into this Expo app.

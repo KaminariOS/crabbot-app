@@ -338,6 +338,22 @@ export default function SessionScreen() {
         ) : null}
       </View>
 
+      <View
+        style={{
+          borderTopWidth: 1,
+          borderTopColor: palette.border,
+          borderBottomWidth: 1,
+          borderBottomColor: palette.border,
+          backgroundColor: palette.surfaceAlt,
+          paddingHorizontal: 12,
+          paddingVertical: 6,
+        }}
+      >
+        <Text numberOfLines={1} style={{ color: palette.mutedText, fontSize: 12 }}>
+          cwd: {session.cwd?.trim() || '—'}
+        </Text>
+      </View>
+
       <KeyboardAvoidingView
         behavior={Platform.select({ ios: 'padding', android: 'height' })}
         keyboardVerticalOffset={0}

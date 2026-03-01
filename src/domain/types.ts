@@ -17,6 +17,7 @@ export type SessionRef = {
   id: string;
   connectionId: string;
   threadId: string;
+  cwd?: string;
   title: string;
   createdAt: number;
   updatedAt: number;

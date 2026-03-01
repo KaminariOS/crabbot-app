@@ -16,7 +16,6 @@ const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const THREAD_DISCOVERY_INTERVAL_MS = 15000;
 const STREAM_DEBUG = false;
-const PREVIEW_DEBUG = true;
 
 function normalizeForDedupe(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
@@ -764,13 +763,6 @@ export function AppProvider(props: { children: React.ReactNode }) {
 
       const connection = resolveConnection();
       if (!connection) {
-        if (PREVIEW_DEBUG) {
-          console.log('[preview-debug] ensureClient connection missing', {
-            connectionId,
-            stateRefConnectionIds: stateRef.current.connections.map((item) => item.id),
-            stateConnectionIds: state.connections.map((item) => item.id),
-          });
-        }
         throw new Error('Connection not found');
       }
 
@@ -1078,12 +1070,12 @@ export function AppProvider(props: { children: React.ReactNode }) {
   const discoverSessions = useCallback(
     async (connectionId: string) => {
       const client = await ensureClient(connectionId);
-      let raw: { data?: { id?: string; title?: string; updatedAt?: number; createdAt?: number }[] };
+      let raw: { data?: { id?: string; title?: string; updatedAt?: number; createdAt?: number; cwd?: string }[] };
       try {
         raw = (await client.sendRequest('thread/list', {
           limit: 50,
           archived: false,
-        })) as { data?: { id?: string; title?: string; updatedAt?: number; createdAt?: number }[] };
+        })) as { data?: { id?: string; title?: string; updatedAt?: number; createdAt?: number; cwd?: string }[] };
       } catch (error) {
         if (STREAM_DEBUG) {
           console.log('[rpc] thread/list failed', { connectionId, error });
@@ -1108,6 +1100,7 @@ export function AppProvider(props: { children: React.ReactNode }) {
           id: existing?.id ?? makeId(),
           connectionId,
           threadId: item.id,
+          cwd: item.cwd ?? existing?.cwd,
           title: preferredTitle,
           createdAt: item.createdAt ?? existing?.createdAt ?? now,
           updatedAt: item.updatedAt ?? now,
@@ -1397,46 +1390,16 @@ export function AppProvider(props: { children: React.ReactNode }) {
     async (sessionId: string): Promise<{ lastUser: string | null; lastAssistant: string | null }> => {
       const session = state.sessions.find((s) => s.id === sessionId);
       if (!session) {
-        if (PREVIEW_DEBUG) {
-          console.log('[preview-debug] session not found', {
-            sessionId,
-            knownSessionCount: state.sessions.length,
-          });
-        }
         return { lastUser: null, lastAssistant: null };
       }
       try {
         const client = await ensureClient(session.connectionId);
-        if (PREVIEW_DEBUG) {
-          console.log('[preview-debug] request start', {
-            sessionId,
-            connectionId: session.connectionId,
-            threadId: session.threadId,
-          });
-        }
         const raw = (await client.sendRequest('thread/read', {
           threadId: session.threadId,
           includeTurns: true,
         })) as unknown;
-        const preview = extractMessagePreviewFromThreadRead(raw);
-        if (PREVIEW_DEBUG) {
-          console.log('[preview-debug] thread/read summary', {
-            sessionId,
-            threadId: session.threadId,
-            preview,
-            summary: summarizeThreadReadForPreview(raw),
-          });
-        }
-        return preview;
+        return extractMessagePreviewFromThreadRead(raw);
       } catch (error) {
-        if (PREVIEW_DEBUG) {
-          console.log('[preview-debug] request failed', {
-            sessionId,
-            connectionId: session.connectionId,
-            threadId: session.threadId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
         throw error;
       }
     },
@@ -1653,34 +1616,6 @@ function extractMessagePreviewFromThreadRead(raw: unknown): { lastUser: string |
   return {
     lastUser: lastUserMessage,
     lastAssistant: lastAssistantMessage,
-  };
-}
-
-function summarizeThreadReadForPreview(raw: unknown) {
-  const response = asObject(raw);
-  const thread = asObject(response?.thread);
-  const turns = Array.isArray(thread?.turns) ? thread.turns : [];
-  const lastTurnObj = turns.length > 0 ? asObject(turns[turns.length - 1]) : null;
-  const lastTurnItems = Array.isArray(lastTurnObj?.items) ? lastTurnObj.items : [];
-  const lastTurnItemTypes = lastTurnItems
-    .map((item) => asObject(item))
-    .filter((item): item is Record<string, unknown> => item != null)
-    .map((item) => ({
-      type: asString(item.type),
-      role: asString(item.role),
-      hasText: Boolean(asString(item.text)),
-      hasMessage: Boolean(asString(item.message)),
-      contentCount: Array.isArray(item.content) ? item.content.length : 0,
-    }));
-
-  return {
-    topLevelKeys: response ? Object.keys(response) : [],
-    threadKeys: thread ? Object.keys(thread) : [],
-    turnCount: turns.length,
-    lastTurnKeys: lastTurnObj ? Object.keys(lastTurnObj) : [],
-    lastTurnLastAgentMessage:
-      asString(lastTurnObj?.lastAgentMessage) ?? asString(lastTurnObj?.last_agent_message) ?? null,
-    lastTurnItemTypes,
   };
 }
 

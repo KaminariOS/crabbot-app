@@ -7,8 +7,6 @@ import { useAppState } from '@/src/state/AppContext';
 import { useThemeSettings } from '@/src/state/ThemeContext';
 import { getChatGptPalette } from '@/src/ui/chatgpt';
 
-const PREVIEW_DEBUG = true;
-
 export default function ConnectionDetailScreen() {
   const params = useLocalSearchParams<{ connectionId: string }>();
   const router = useRouter();
@@ -41,44 +39,19 @@ export default function ConnectionDetailScreen() {
     const sessionsToHydrate = sessions.filter(
       (session) => lastUserMessageBySession[session.id] === undefined || lastAssistantMessageBySession[session.id] === undefined,
     );
-    if (PREVIEW_DEBUG) {
-      console.log('[preview-debug][connection] hydrate check', {
-        connectionId,
-        totalSessions: sessions.length,
-        sessionsToHydrate: sessionsToHydrate.map((s) => ({ id: s.id, threadId: s.threadId })),
-      });
-    }
     if (sessionsToHydrate.length === 0) {
       return;
     }
     void Promise.all(
       sessionsToHydrate.map(async (session) => {
         try {
-          if (PREVIEW_DEBUG) {
-            console.log('[preview-debug][connection] hydrate start', {
-              sessionId: session.id,
-              threadId: session.threadId,
-            });
-          }
           const preview = await getSessionMessagePreview(session.id);
-          if (PREVIEW_DEBUG) {
-            console.log('[preview-debug][connection] hydrate success', {
-              sessionId: session.id,
-              preview,
-            });
-          }
           if (preview.lastUser?.trim()) {
             setSessionTitle(session.id, preview.lastUser);
           }
           setLastUserMessageBySession((current) => ({ ...current, [session.id]: preview.lastUser }));
           setLastAssistantMessageBySession((current) => ({ ...current, [session.id]: preview.lastAssistant }));
-        } catch (error) {
-          if (PREVIEW_DEBUG) {
-            console.log('[preview-debug][connection] hydrate failed', {
-              sessionId: session.id,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
+        } catch {
           setLastUserMessageBySession((current) => ({ ...current, [session.id]: null }));
           setLastAssistantMessageBySession((current) => ({ ...current, [session.id]: null }));
         }
