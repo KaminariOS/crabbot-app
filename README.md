@@ -65,7 +65,7 @@ It also handles streaming notifications and server approval requests across both
 ## Requirements
 
 - Node.js + npm
-- Expo CLI (`npx expo ...`)
+- Expo CLI
 - A reachable Codex daemon WebSocket endpoint
 
 For Android device testing, use a development build when you need full native notification behavior.
@@ -78,34 +78,7 @@ For Android device testing, use a development build when you need full native no
 npm install
 ```
 
-2. Start Expo (normal):
-
-```bash
-npm run start
-```
-
-3. Start Expo with tunnel (useful on device/network issues):
-
-```bash
-npm run start -- --tunnel
-# or
-npx expo start --tunnel
-```
-
-4. Start Expo with cache clear (when Metro/Expo cache is stale):
-
-```bash
-npm run start -- --clear
-# or
-npx expo start --clear
-```
-
-5. Open targets from the running dev server:
-
-```bash
-npm run android
-npm run web
-```
+2. Additional run commands are intentionally omitted here and should be added only when they appear in your shell history.
 
 ## Usage Flow
 
@@ -133,20 +106,7 @@ This repository still contains some Expo template files (for example `app/(tabs)
 
 ## Scripts
 
-- `npm run start`: Start Expo dev server
-- `npm run start -- --tunnel`: Start Expo with tunnel mode
-- `npm run start -- --clear`: Start Expo and clear Metro/Expo cache
-- `npm run android`: Launch Android target
-- `npm run ios`: Launch iOS target
-- `npm run web`: Launch web target
-- `npm run lint`: Run Expo lint
-
-## EAS Build (Android Preview)
-
-```bash
-npx eas-cli@latest build:configure
-npx eas-cli@latest build -p android --profile preview
-```
+- `npm install`: Install dependencies
 
 ## Migration Goal
 
