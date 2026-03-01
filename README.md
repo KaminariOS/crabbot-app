@@ -2,7 +2,7 @@
 
 React Native + Expo client for Codex daemon sessions over WebSocket, targeting Android and Web parity.
 
-This app is the step-by-step port of the `~/repos/crabbot` TUI into a mobile/web UX in `expo-app`.
+This app is the step-by-step port of the `crabbot` TUI into a mobile/web UX.
 
 ## What It Does
 
@@ -73,13 +73,29 @@ For Android device testing, use a development build when you need full native no
 npm install
 ```
 
-2. Start Expo:
+2. Start Expo (normal):
 
 ```bash
 npm run start
 ```
 
-3. Open targets:
+3. Start Expo with tunnel (useful on device/network issues):
+
+```bash
+npm run start -- --tunnel
+# or
+npx expo start --tunnel
+```
+
+4. Start Expo with cache clear (when Metro/Expo cache is stale):
+
+```bash
+npm run start -- --clear
+# or
+npx expo start --clear
+```
+
+5. Open targets from the running dev server:
 
 ```bash
 npm run android
@@ -113,10 +129,19 @@ This repository still contains some Expo template files (for example `app/(tabs)
 ## Scripts
 
 - `npm run start`: Start Expo dev server
+- `npm run start -- --tunnel`: Start Expo with tunnel mode
+- `npm run start -- --clear`: Start Expo and clear Metro/Expo cache
 - `npm run android`: Launch Android target
 - `npm run ios`: Launch iOS target
 - `npm run web`: Launch web target
 - `npm run lint`: Run Expo lint
+
+## EAS Build (Android Preview)
+
+```bash
+npx eas-cli@latest build:configure
+npx eas-cli@latest build -p android --profile preview
+```
 
 ## Migration Goal
 
