@@ -7,6 +7,7 @@ This app is the step-by-step port(in progress) of the `crabbot` TUI into a mobil
 ## App Preview
 
 ![Crabbot Expo App Preview](./assets/main.png)
+![Crabbot Expo Chat Preview](./assets/chat.png)
 
 ## What It Does
 
