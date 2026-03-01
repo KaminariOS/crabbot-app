@@ -2,7 +2,7 @@
 
 React Native + Expo client for Codex daemon sessions over WebSocket, targeting Android and Web parity.
 
-This app is the step-by-step port of the `crabbot` TUI into a mobile/web UX.
+This app is the step-by-step port(in progress) of the `crabbot` TUI into a mobile/web UX.
 
 ## What It Does
 
