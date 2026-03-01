@@ -222,6 +222,9 @@ export default function ConnectionDetailScreen() {
                       threadId: {session.threadId}
                     </Paragraph>
                     <Paragraph size="$2" style={{ color: palette.mutedText }}>
+                      cwd: {session.cwd?.trim() ? session.cwd : '—'}
+                    </Paragraph>
+                    <Paragraph size="$2" style={{ color: palette.mutedText }}>
                       state: {session.state}
                     </Paragraph>
                     {loadingSessionId === session.id ? (
